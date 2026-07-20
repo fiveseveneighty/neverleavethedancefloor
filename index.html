@@ -310,17 +310,8 @@
         candidates.map(p => fetchPlaylistDetail(token, p.id).then(d => ({ playlist: p, detail: d })))
       );
 
-      const mixes = details
-        .map(({ playlist, detail }) => {
-          const tracks = detail.tracks?.items || [];
-          const dates  = tracks.map(t => t.added_at ? new Date(t.added_at) : null).filter(Boolean);
-          const newest = dates.length ? new Date(Math.max(...dates)) : null;
-          const oldest = dates.length ? new Date(Math.min(...dates)) : null;
-          return { playlist, detail, newest, oldest };
-        })
-        .filter(({ oldest }) => oldest && oldest >= MIXES_SINCE)
-        .sort((a, b) => b.newest - a.newest)
-        .slice(0, MAX_MIXES);
+      // Spotify returns playlists newest-first — take the top MAX_MIXES public ones
+      const mixes = details.slice(0, MAX_MIXES);
 
       if (mixes.length === 0) {
         container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">No mixes found yet.</div>`;
