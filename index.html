@@ -241,11 +241,21 @@
   }
 
   async function fetchPlaylistDetail(token, id) {
-    const res = await fetch(
-      `https://api.spotify.com/v1/playlists/${id}`,
-      { headers: { 'Authorization': `Bearer ${token}` } }
-    );
-    return res.json();
+    // Fetch playlist meta (images, name, external_urls) and tracks separately
+    const [meta, tracks] = await Promise.all([
+      fetch(`https://api.spotify.com/v1/playlists/${id}?fields=name,images,external_urls,tracks.total`,
+        { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json()),
+      fetch(`https://api.spotify.com/v1/playlists/${id}/tracks?fields=items(track(duration_ms))&limit=100`,
+        { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json()),
+    ]);
+    // Merge into a single object matching what the render function expects
+    return {
+      ...meta,
+      tracks: {
+        total: meta.tracks?.total || 0,
+        items: tracks.items || [],
+      },
+    };
   }
 
   function fmtDuration(ms) {
