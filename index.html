@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Never Leave the Dancefloor</title>
+<meta name="description" content="Coming soon.">
+<meta property="og:title" content="Never Leave the Dancefloor">
+<meta property="og:description" content="Coming soon.">
+<meta property="og:image" content="https://neverleavethedancefloor.com/hero.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #0a0a0a; }
+  body { font-family: 'DM Mono', monospace; -webkit-font-smoothing: antialiased; display: flex; align-items: center; justify-content: center; }
+  .landing { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+  .hero-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 85%; opacity: 0; animation: imageReveal 2s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards; }
+  @media (max-aspect-ratio: 1/1) { .hero-img { object-position: center 75%; } }
+  .overlay { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(10,10,10,0.15) 0%, rgba(10,10,10,0.0) 30%, rgba(10,10,10,0.0) 60%, rgba(10,10,10,0.4) 82%, rgba(10,10,10,0.85) 100%); pointer-events: none; }
+  .content { position: relative; z-index: 2; text-align: center; padding: 0 24px; margin-top: auto; margin-bottom: 16px; width: 100%; max-width: 600px; align-self: flex-end; }
+  .coming-soon { font-size: 11px; font-weight: 500; letter-spacing: 0.25em; text-transform: uppercase; color: rgba(255,255,255,0.4); margin-bottom: 20px; opacity: 0; animation: fadeUp 1s ease 1.6s forwards; }
+  .ambient-glow { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 60% 40%, rgba(200,50,120,0.06) 0%, transparent 70%); animation: ambientPulse 6s ease-in-out infinite; }
+  @keyframes imageReveal { from { opacity: 0; transform: scale(1.03); } to { opacity: 1; transform: scale(1); } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes ambientPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+  @media (max-width: 480px) { .content { margin-bottom: 4px; } .coming-soon { font-size: 10px; } }
+</style>
+</head>
+<body>
+<div class="landing">
+  <picture>
+    <source media="(max-aspect-ratio: 1/1)" srcset="hero-portrait.png">
+    <img src="hero.png" alt="" class="hero-img" />
+  </picture>
+  <div class="overlay"></div>
+  <div class="ambient-glow"></div>
+  <div class="content">
+    <div class="coming-soon">There's something on my mind</div>
+  </div>
+</div>
+</body>
+</html>
