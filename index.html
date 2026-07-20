@@ -242,7 +242,7 @@
 
   async function fetchPlaylistDetail(token, id) {
     const res = await fetch(
-      `https://api.spotify.com/v1/playlists/${id}?fields=tracks.total,tracks.items(added_at,track(duration_ms)),images,external_urls`,
+      `https://api.spotify.com/v1/playlists/${id}`,
       { headers: { 'Authorization': `Bearer ${token}` } }
     );
     return res.json();
