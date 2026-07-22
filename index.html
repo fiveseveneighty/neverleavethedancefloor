@@ -230,7 +230,10 @@
     let playlists = [];
     let url = 'https://api.spotify.com/v1/me/playlists?limit=50';
     while (url) {
-      const res  = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.status === 429) throw new Error('RATE_LIMITED');
+      if (res.status === 401) throw new Error('TOKEN_EXPIRED');
+      if (!res.ok) throw new Error(`SPOTIFY_ERROR_${res.status}`);
       const data = await res.json();
       playlists  = playlists.concat(data.items || []);
       url        = data.next || null;
@@ -391,7 +394,16 @@
 
     } catch (err) {
       console.error('Spotify load failed:', err);
-      container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Could not load mixes.</div>`;
+      if (err.message === 'RATE_LIMITED') {
+        container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Spotify is rate limited — try again in a minute.</div>`;
+      } else if (err.message === 'TOKEN_EXPIRED') {
+        // Clear stale token and show connect button
+        localStorage.removeItem('nltdf_sp_token');
+        localStorage.removeItem('nltdf_sp_expiry');
+        container.innerHTML = renderConnectButton();
+      } else {
+        container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Could not load mixes.</div>`;
+      }
     }
   }
 
