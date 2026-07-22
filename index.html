@@ -124,10 +124,7 @@
       </div>
       <div class="card">
         <div class="label">Sets</div>
-        <div class="set-row"><span class="set-num">01</span><span class="set-title">Set title from YouTube</span><span class="set-dur">1:02:14</span></div>
-        <div class="set-row"><span class="set-num">02</span><span class="set-title">Set title from YouTube</span><span class="set-dur">58:40</span></div>
-        <div class="set-row"><span class="set-num">03</span><span class="set-title">Set title from YouTube</span><span class="set-dur">1:14:22</span></div>
-        <div class="set-row"><span class="set-num">04</span><span class="set-title">Set title from YouTube</span><span class="set-dur">1:08:55</span></div>
+        <div id="sets-list"></div>
       </div>
     </div>
     <div class="card right">
@@ -373,6 +370,85 @@
   }
 
   document.addEventListener('DOMContentLoaded', boot);
+
+  // ─── YouTube Config ──────────────────────────────────────────────────────
+  const YT_API_KEY     = 'AIzaSyD0fAm9iOXtdipNQDw0GSF63LW50-Zn7RY';
+  const YT_PLAYLIST_ID = 'PLilRFyj4i-3GrbHBLl9Ldeim7CTI5jDEc';
+  const MAX_SETS       = 4;
+  // ────────────────────────────────────────────────────────────────────────
+
+  function fmtYTDuration(iso) {
+    // Parses ISO 8601 duration e.g. PT1H2M14S
+    const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    if (!match) return '—';
+    const h = parseInt(match[1] || 0);
+    const m = parseInt(match[2] || 0);
+    const s = parseInt(match[3] || 0);
+    const mm = String(m).padStart(2, '0');
+    const ss = String(s).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+  }
+
+  async function loadSets() {
+    const container = document.getElementById('sets-list');
+    if (!container) return;
+
+    // Skeleton
+    container.innerHTML = Array(MAX_SETS).fill(0).map((_, i) => `
+      <div class="set-row" style="opacity:0.25;">
+        <span class="set-num">0${i+1}</span>
+        <span class="set-title" style="background:rgba(255,255,255,0.08);height:12px;width:180px;display:inline-block;border-radius:2px;"></span>
+        <span class="set-dur"></span>
+      </div>`).join('');
+
+    try {
+      // Step 1: get video IDs from playlist
+      const plRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=${MAX_SETS}&playlistId=${YT_PLAYLIST_ID}&key=${YT_API_KEY}`
+      );
+      const plData = await plRes.json();
+
+      if (plData.error) {
+        console.error('YouTube playlist error:', plData.error);
+        container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Could not load sets.</div>`;
+        return;
+      }
+
+      const items = plData.items || [];
+      const videoIds = items.map(i => i.snippet.resourceId.videoId).join(',');
+
+      // Step 2: get durations for each video
+      const vidRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${videoIds}&key=${YT_API_KEY}`
+      );
+      const vidData = await vidRes.json();
+      const durations = {};
+      (vidData.items || []).forEach(v => {
+        durations[v.id] = v.contentDetails.duration;
+      });
+
+      container.innerHTML = items.map((item, i) => {
+        const title = item.snippet.title;
+        const videoId = item.snippet.resourceId.videoId;
+        const dur = durations[videoId] ? fmtYTDuration(durations[videoId]) : '—';
+        const url = `https://www.youtube.com/watch?v=${videoId}`;
+        const num = String(i + 1).padStart(2, '0');
+        return `
+          <div class="set-row">
+            <span class="set-num">${num}</span>
+            <a class="set-title" href="${url}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;">${title}</a>
+            <span class="set-dur">${dur}</span>
+          </div>`;
+      }).join('');
+
+    } catch (err) {
+      console.error('YouTube load failed:', err);
+      container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Could not load sets.</div>`;
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', loadSets);
+
 </script>
 
 </body></html>
