@@ -309,15 +309,16 @@
 
   // All fetched mix data stored here for pagination
   let allMixDetails = [];
+  let allMixCandidates = [];
+  let spotifyToken = null;
 
   function monthLabel(dateStr) {
     if (!dateStr) return 'Unknown';
     return new Date(dateStr).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   }
 
-  function renderMixList(details, showAll) {
-    const visible = showAll ? details : details.slice(0, MAX_MIXES);
-    const hasMore = !showAll && details.length > MAX_MIXES;
+  function renderMixList(details, showAll, hasMore = false, remaining = 0) {
+    const visible = details;
 
     // Group by month (using newest track date)
     const groups = [];
@@ -351,7 +352,6 @@
     });
 
     if (hasMore) {
-      const remaining = details.length - MAX_MIXES;
       html += `<div style="padding:14px 0 2px;">
         <button id="mixes-more-btn" onclick="showAllMixes()" style="font-family:'Josefin Sans',sans-serif;font-size:9px;font-weight:600;letter-spacing:0.15em;text-transform:uppercase;color:#e8789c;border:1px solid rgba(232,120,156,0.3);background:rgba(232,120,156,0.06);padding:7px 14px;cursor:pointer;width:100%;">
           + ${remaining} more
@@ -362,10 +362,20 @@
     return html;
   }
 
-  function showAllMixes() {
+  async function showAllMixes() {
     const container = document.getElementById('mix-list');
     if (!container) return;
-    container.innerHTML = renderMixList(allMixDetails, true);
+
+    const btn = document.getElementById('mixes-more-btn');
+    if (btn) btn.textContent = 'Loading...';
+
+    const remaining = allMixCandidates.slice(MAX_MIXES);
+    const token = localStorage.getItem('nltdf_sp_token');
+    const newDetails = await Promise.all(
+      remaining.map(p => fetchPlaylistDetail(token, p.id).then(d => ({ playlist: p, detail: d })))
+    );
+    allMixDetails = [...allMixDetails, ...newDetails];
+    container.innerHTML = renderMixList(allMixDetails, true, false, 0);
   }
 
   async function loadMixes(token) {
@@ -377,20 +387,23 @@
     try {
       const all = await getUserPlaylists(token);
       const candidates = all.filter(p => p.public !== false);
+      allMixCandidates = candidates; // store all for later
 
-      // Fetch details for all playlists (for grouping + more button)
+      // Only fetch details for the first batch — load rest on demand
+      const firstBatch = candidates.slice(0, MAX_MIXES);
       const details = await Promise.all(
-        candidates.map(p => fetchPlaylistDetail(token, p.id).then(d => ({ playlist: p, detail: d })))
+        firstBatch.map(p => fetchPlaylistDetail(token, p.id).then(d => ({ playlist: p, detail: d })))
       );
 
       allMixDetails = details;
+      const hasMore = candidates.length > MAX_MIXES;
 
       if (allMixDetails.length === 0) {
         container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">No mixes found yet.</div>`;
         return;
       }
 
-      container.innerHTML = renderMixList(allMixDetails, false);
+      container.innerHTML = renderMixList(allMixDetails, false, hasMore, candidates.length - MAX_MIXES);
 
     } catch (err) {
       console.error('Spotify load failed:', err);
