@@ -4,7 +4,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Never Leave the Dancefloor</title>
-<link href="./Never Leave the Dancefloor_files/css2" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -304,6 +304,67 @@
     </div>`;
   }
 
+  // All fetched mix data stored here for pagination
+  let allMixDetails = [];
+
+  function monthLabel(dateStr) {
+    if (!dateStr) return 'Unknown';
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
+
+  function renderMixList(details, showAll) {
+    const visible = showAll ? details : details.slice(0, MAX_MIXES);
+    const hasMore = !showAll && details.length > MAX_MIXES;
+
+    // Group by month (using newest track date)
+    const groups = [];
+    const seen = {};
+    visible.forEach(({ playlist, detail }) => {
+      const tracks = detail.tracks?.items || [];
+      const dates = tracks.map(t => t.added_at ? new Date(t.added_at) : null).filter(Boolean);
+      const newest = dates.length ? new Date(Math.max(...dates)) : null;
+      const month = newest ? monthLabel(newest.toISOString()) : 'Unknown';
+      if (!seen[month]) { seen[month] = []; groups.push({ month, items: seen[month] }); }
+      seen[month].push({ playlist, detail, newest });
+    });
+
+    let html = '';
+    groups.forEach(({ month, items }) => {
+      // Thin line with month inline
+      html += `<div style="display:flex;align-items:center;gap:10px;margin:16px 0 12px;">
+        <span style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:#444;white-space:nowrap;">${month}</span>
+        <div style="flex:1;height:1px;background:rgba(255,255,255,0.06);"></div>
+      </div>`;
+      items.forEach(({ playlist, detail }) => {
+        const tracks = detail.tracks?.items || [];
+        const totalMs = tracks.reduce((sum, t) => sum + (t.track?.duration_ms || 0), 0);
+        const trackCount = detail.tracks?.total || tracks.length;
+        const img = detail.images?.[0]?.url || playlist.images?.[0]?.url || null;
+        const url = detail.external_urls?.spotify || `https://open.spotify.com/playlist/${playlist.id}`;
+        const dur = totalMs > 0 ? fmtDuration(totalMs) : '—';
+        const meta = [`${trackCount} tracks`, dur].filter(Boolean).join(' · ');
+        html += renderMixRow(playlist.name, meta, img, url);
+      });
+    });
+
+    if (hasMore) {
+      const remaining = details.length - MAX_MIXES;
+      html += `<div style="padding:14px 0 2px;">
+        <button id="mixes-more-btn" onclick="showAllMixes()" style="font-family:'Josefin Sans',sans-serif;font-size:9px;font-weight:600;letter-spacing:0.15em;text-transform:uppercase;color:#e8789c;border:1px solid rgba(232,120,156,0.3);background:rgba(232,120,156,0.06);padding:7px 14px;cursor:pointer;width:100%;">
+          + ${remaining} more
+        </button>
+      </div>`;
+    }
+
+    return html;
+  }
+
+  function showAllMixes() {
+    const container = document.getElementById('mix-list');
+    if (!container) return;
+    container.innerHTML = renderMixList(allMixDetails, true);
+  }
+
   async function loadMixes(token) {
     const container = document.getElementById('mix-list');
     if (!container) return;
@@ -312,31 +373,21 @@
 
     try {
       const all = await getUserPlaylists(token);
-      const candidates = all.filter(p => p.public !== false).slice(0, MAX_MIXES * 3);
+      const candidates = all.filter(p => p.public !== false);
 
+      // Fetch details for all playlists (for grouping + more button)
       const details = await Promise.all(
         candidates.map(p => fetchPlaylistDetail(token, p.id).then(d => ({ playlist: p, detail: d })))
       );
 
-      // Spotify returns playlists newest-first — take the top MAX_MIXES public ones
-      const mixes = details.slice(0, MAX_MIXES);
+      allMixDetails = details;
 
-      if (mixes.length === 0) {
+      if (allMixDetails.length === 0) {
         container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">No mixes found yet.</div>`;
         return;
       }
 
-      container.innerHTML = mixes.map(({ playlist, detail }) => {
-        const tracks     = detail.tracks?.items || [];
-        const totalMs    = tracks.reduce((sum, t) => sum + (t.track?.duration_ms || 0), 0);
-        const trackCount = detail.tracks?.total || tracks.length;
-        const img        = detail.images?.[0]?.url || playlist.images?.[0]?.url || null;
-        const url        = detail.external_urls?.spotify || `https://open.spotify.com/playlist/${playlist.id}`;
-        const addedAt    = tracks[0]?.added_at || null;
-        const dur        = totalMs > 0 ? fmtDuration(totalMs) : '—';
-        const meta       = [addedAt ? fmtDate(addedAt) : '', `${trackCount} tracks`, dur].filter(Boolean).join(' · ');
-        return renderMixRow(playlist.name, meta, img, url);
-      }).join('');
+      container.innerHTML = renderMixList(allMixDetails, false);
 
     } catch (err) {
       console.error('Spotify load failed:', err);
