@@ -445,11 +445,13 @@
     if (!container) return;
 
     // Skeleton
-    container.innerHTML = Array(MAX_SETS).fill(0).map((_, i) => `
-      <div class="set-row" style="opacity:0.25;">
-        <span class="set-num">0${i+1}</span>
-        <span class="set-title" style="background:rgba(255,255,255,0.08);height:12px;width:180px;display:inline-block;border-radius:2px;"></span>
-        <span class="set-dur"></span>
+    container.innerHTML = Array(MAX_SETS).fill(0).map(() => `
+      <div class="mix-row" style="opacity:0.25;">
+        <div class="mix-thumb">▶</div>
+        <div class="mix-info">
+          <div style="background:rgba(255,255,255,0.1);height:13px;width:200px;border-radius:2px;"></div>
+          <div style="background:rgba(255,255,255,0.05);height:9px;width:60px;border-radius:2px;margin-top:6px;"></div>
+        </div>
       </div>`).join('');
 
     try {
@@ -484,11 +486,19 @@
         const dur = durations[videoId] ? fmtYTDuration(durations[videoId]) : '—';
         const url = `https://www.youtube.com/watch?v=${videoId}`;
         const num = String(i + 1).padStart(2, '0');
+        const thumb = item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || null;
+        const thumbHtml = thumb
+          ? `<img src="${thumb}" alt="" style="width:38px;height:38px;object-fit:cover;flex-shrink:0;">`
+          : `<div style="width:38px;height:38px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;color:#444;font-size:14px;flex-shrink:0;">▶</div>`;
         return `
-          <div class="set-row">
-            <span class="set-num">${num}</span>
-            <a class="set-title" href="${url}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;">${title}</a>
-            <span class="set-dur">${dur}</span>
+          <div class="mix-row">
+            <div class="mix-thumb">${thumbHtml}</div>
+            <div class="mix-info" style="flex:1;min-width:0;">
+              <a href="${url}" target="_blank" rel="noopener" style="text-decoration:none;">
+                <div class="mix-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${title}</div>
+              </a>
+              <div class="mix-meta">${dur}</div>
+            </div>
           </div>`;
       }).join('');
 
