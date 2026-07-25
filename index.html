@@ -129,13 +129,7 @@
     </div>
     <div class="card right">
       <div class="label">Upcoming shows</div>
-      <div class="cal-row next"><span class="cal-next">Next up</span><div class="cal-top"><div><div class="cal-date">Thu · Jul 24 · 10pm</div><div class="cal-name">DJ BL3SS</div><div class="cal-venue">Club Vinyl · Denver</div><div class="cal-detail">Free before 11</div></div><a class="cal-tickets" href="file:///Users/dansaltzman/Downloads/nltdf-city-bg.html#">Tickets →</a></div></div>
-      <div class="cal-row"><div class="cal-top"><div><div class="cal-date">Fri · Aug 02 · 9pm</div><div class="cal-name">Show Name</div><div class="cal-venue">Venue · Denver</div><div class="cal-detail">Techno · House</div></div><a class="cal-tickets" href="file:///Users/dansaltzman/Downloads/nltdf-city-bg.html#">Tickets →</a></div></div>
-      <div class="cal-row"><div class="cal-top"><div><div class="cal-date">Sat · Aug 09 · 10pm</div><div class="cal-name">Show Name</div><div class="cal-venue">Venue · Denver</div><div class="cal-detail">EDM</div></div><span class="cal-tba">TBA</span></div></div>
-      <div class="cal-row"><div class="cal-top"><div><div class="cal-date">Fri · Aug 16 · 9pm</div><div class="cal-name">Show Name</div><div class="cal-venue">Venue · Denver</div><div class="cal-detail">Techno</div></div><a class="cal-tickets" href="file:///Users/dansaltzman/Downloads/nltdf-city-bg.html#">Tickets →</a></div></div>
-      <div class="cal-row"><div class="cal-top"><div><div class="cal-date">Sat · Aug 23 · 10pm</div><div class="cal-name">Show Name</div><div class="cal-venue">Venue · Denver</div><div class="cal-detail">House · Techno</div></div><span class="cal-tba">TBA</span></div></div>
-      <div class="cal-row"><div class="cal-top"><div><div class="cal-date">Fri · Aug 30 · 9pm</div><div class="cal-name">Show Name</div><div class="cal-venue">Venue · Denver</div><div class="cal-detail">EDM</div></div><a class="cal-tickets" href="file:///Users/dansaltzman/Downloads/nltdf-city-bg.html#">Tickets →</a></div></div>
-      <div class="cal-row"><div class="cal-top"><div><div class="cal-date">Sat · Sep 06 · 10pm</div><div class="cal-name">Show Name</div><div class="cal-venue">Venue · Denver</div><div class="cal-detail">Techno</div></div><a class="cal-tickets" href="file:///Users/dansaltzman/Downloads/nltdf-city-bg.html#">Tickets →</a></div></div>
+      <div id="cal-list"></div><a class="cal-tickets" href="file:///Users/dansaltzman/Downloads/nltdf-city-bg.html#">Tickets →</a></div></div>
     </div>
   </div>
 
@@ -534,6 +528,96 @@
   }
 
   document.addEventListener('DOMContentLoaded', loadSets);
+
+  // ─── Google Calendar Config ──────────────────────────────────────────────
+  const GCAL_API_KEY = 'AIzaSyD0fAm9iOXtdipNQDw0GSF63LW50-Zn7RY';
+  const GCAL_ID      = '9939FDC3-A99E-48AE-8ABE-3667293ACB0C';
+  const MAX_EVENTS   = 8;
+  // ────────────────────────────────────────────────────────────────────────
+
+  function fmtEventDate(dateStr) {
+    const d = new Date(dateStr);
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const day = days[d.getDay()];
+    const month = months[d.getMonth()];
+    const date = d.getDate();
+    let hours = d.getHours();
+    const ampm = hours >= 12 ? 'pm' : 'am';
+    hours = hours % 12 || 12;
+    return `${day} · ${month} ${date} · ${hours}${ampm}`;
+  }
+
+  function isFirstUpcoming(events, index) {
+    return index === 0;
+  }
+
+  function renderCalRow(event, isNext) {
+    const start = event.start.dateTime || event.start.date;
+    const dateStr = fmtEventDate(start);
+    const name = event.summary || 'TBA';
+    
+    // Parse description for venue, detail, and ticket URL
+    const desc = event.description || '';
+    const lines = desc.split('\n').map(l => l.trim()).filter(Boolean);
+    const venue = lines[0] || 'Denver';
+    const detail = lines[1] || '';
+    const ticketUrl = lines.find(l => l.startsWith('http')) || null;
+
+    const nextBadge = isNext ? `<span class="cal-next">Next up</span>` : '';
+    const ticketBtn = ticketUrl
+      ? `<a class="cal-tickets" href="${ticketUrl}" target="_blank" rel="noopener">Tickets →</a>`
+      : `<span class="cal-tba">TBA</span>`;
+
+    return `
+      <div class="cal-row${isNext ? ' next' : ''}">
+        ${nextBadge}
+        <div class="cal-top">
+          <div>
+            <div class="cal-date">${dateStr}</div>
+            <div class="cal-name">${name}</div>
+            <div class="cal-venue">${venue}</div>
+            ${detail ? `<div class="cal-detail">${detail}</div>` : ''}
+          </div>
+          ${ticketBtn}
+        </div>
+      </div>`;
+  }
+
+  async function loadCalendar() {
+    const container = document.getElementById('cal-list');
+    if (!container) return;
+
+    const now = new Date().toISOString();
+    const calId = encodeURIComponent(GCAL_ID);
+    const url = `https://www.googleapis.com/calendar/v3/calendars/${calId}/events?key=${GCAL_API_KEY}&timeMin=${now}&maxResults=${MAX_EVENTS}&singleEvents=true&orderBy=startTime`;
+
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (data.error) {
+        console.error('Calendar error:', data.error);
+        container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Could not load shows.</div>`;
+        return;
+      }
+
+      const events = data.items || [];
+      if (events.length === 0) {
+        container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">No upcoming shows.</div>`;
+        return;
+      }
+
+      container.innerHTML = events.map((e, i) => renderCalRow(e, i === 0)).join('');
+
+    } catch (err) {
+      console.error('Calendar load failed:', err);
+      container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Could not load shows.</div>`;
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', loadCalendar);
+
 
 </script>
 
