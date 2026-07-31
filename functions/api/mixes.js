@@ -62,7 +62,7 @@ export async function onRequestGet(context) {
     //     after MIXES_SINCE
     const qualifying = details
       .filter(({ detail }) => {
-        const entries = detail.items?.entries || [];
+        const entries = detail.entries || [];
         const dates = entries.map(e => (e.added_at ? new Date(e.added_at) : null)).filter(Boolean);
         if (!dates.length) return true;
         return new Date(Math.min(...dates)) >= MIXES_SINCE;
@@ -159,41 +159,38 @@ async function fetchDetailsInBatches(token, playlists, batchSize) {
 }
 
 async function fetchPlaylistDetail(token, id) {
-  const [metaRes, itemsRes] = await Promise.all([
-    fetch(`https://api.spotify.com/v1/playlists/${id}?fields=name,images,external_urls,items.total`, {
-      headers: { Authorization: `Bearer ${token}` },
-    }),
-    fetch(`https://api.spotify.com/v1/playlists/${id}/items?fields=items(added_at,item(duration_ms))&limit=100`, {
-      headers: { Authorization: `Bearer ${token}` },
-    }),
-  ]);
-  if (!metaRes.ok) throw new Error(`PLAYLIST_META_ERROR_${metaRes.status}`);
+  // Only fetch the items/tracks list here — name, images, external_urls,
+  // and items.total are already present on the playlist object returned by
+  // /v1/me/playlists (see getUserPlaylists), so we don't need a second
+  // request per playlist just to re-fetch them. This halves the subrequest
+  // count, which matters a lot with 100+ playlists on one Cloudflare
+  // Worker invocation (Workers has a hard cap on total subrequests per
+  // invocation, separate from any rate limiting).
+  const itemsRes = await fetch(
+    `https://api.spotify.com/v1/playlists/${id}/items?fields=items(added_at,item(duration_ms))&limit=100`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
   if (!itemsRes.ok) throw new Error(`PLAYLIST_ITEMS_ERROR_${itemsRes.status}`);
-  const meta = await metaRes.json();
   const itemsData = await itemsRes.json();
   return {
-    ...meta,
-    items: {
-      total: meta.items?.total || 0,
-      entries: itemsData.items || [],
-    },
+    entries: itemsData.items || [],
   };
 }
 
 function summarize(playlist, detail) {
-  const entries = detail.items?.entries || [];
+  const entries = detail.entries || [];
   const totalMs = entries.reduce((sum, e) => sum + (e.item?.duration_ms || 0), 0);
   const dates = entries.map(e => (e.added_at ? new Date(e.added_at) : null)).filter(Boolean);
   const newest = dates.length ? new Date(Math.max(...dates)) : null;
-  const img = detail.images?.[0]?.url || playlist.images?.[0]?.url || null;
-  const url = detail.external_urls?.spotify || `https://open.spotify.com/playlist/${playlist.id}`;
+  const img = playlist.images?.[0]?.url || null;
+  const url = playlist.external_urls?.spotify || `https://open.spotify.com/playlist/${playlist.id}`;
 
   return {
     id: playlist.id,
-    name: detail.name || playlist.name,
+    name: playlist.name,
     image: img,
     url,
-    trackCount: detail.items?.total || entries.length,
+    trackCount: playlist.items?.total ?? entries.length,
     totalDurationMs: totalMs,
     newestAddedAt: newest ? newest.toISOString() : null,
   };
