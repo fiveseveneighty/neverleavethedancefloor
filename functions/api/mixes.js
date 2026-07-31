@@ -76,8 +76,20 @@ export async function onRequestGet(context) {
       return new Date(b.newestAddedAt) - new Date(a.newestAddedAt);
     });
 
-    const response = jsonResponse({ mixes: qualifying, generatedAt: new Date().toISOString() }, 200, CACHE_TTL_SECONDS);
-    context.waitUntil(cache.put(cacheKey, response.clone()));
+    const debug = new URL(request.url).searchParams.get('debug');
+    const payload = { mixes: qualifying, generatedAt: new Date().toISOString() };
+    if (debug) {
+      payload.counts = {
+        totalPlaylists: candidates.length,
+        publicPlaylists: publicCandidates.length,
+        detailsFetched: details.length,
+        skippedDueToError: publicCandidates.length - details.length,
+        qualifying: qualifying.length,
+      };
+    }
+
+    const response = jsonResponse(payload, 200, debug ? null : CACHE_TTL_SECONDS);
+    if (!debug) context.waitUntil(cache.put(cacheKey, response.clone()));
     return response;
   } catch (err) {
     return jsonResponse({ error: 'FETCH_FAILED', message: String(err && err.message || err) }, 502);
