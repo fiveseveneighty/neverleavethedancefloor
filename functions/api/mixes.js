@@ -86,18 +86,22 @@ export async function onRequestGet(context) {
 
 async function getAccessTokenFromRefreshToken(env) {
   const basic = btoa(`${env.SPOTIFY_CLIENT_ID}:${env.SPOTIFY_CLIENT_SECRET}`);
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: env.SPOTIFY_REFRESH_TOKEN,
+  }).toString();
   const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: {
       'Authorization': `Basic ${basic}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: env.SPOTIFY_REFRESH_TOKEN,
-    }),
+    body,
   });
-  if (!res.ok) throw new Error(`TOKEN_ERROR_${res.status}`);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`TOKEN_ERROR_${res.status}${errText ? `: ${errText.slice(0, 200)}` : ''}`);
+  }
   const data = await res.json();
   if (!data.access_token) throw new Error('TOKEN_MISSING');
   return data.access_token;
