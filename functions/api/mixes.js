@@ -1,22 +1,31 @@
 // functions/api/mixes.js
 //
 // Cloudflare Pages Function — serves NLTDF's Spotify mixes to visitors
-// without requiring visitor OAuth. Uses the Client Credentials flow
-// (Client ID + Secret, stored as Cloudflare env vars) to fetch playlists
-// from the fiveseveneighty account, filters them to mixes created on or
-// after MIXES_SINCE (matching the frontend's original logic exactly),
-// and returns a small, pre-computed JSON payload the page can render
-// directly — no client-side Spotify calls, no "+N more" pagination bugs.
+// without requiring visitor OAuth.
+//
+// NOTE: Spotify's February 2026 API changes restrict the Client
+// Credentials flow from accessing user/playlist data (403 on
+// /v1/users/{id}/playlists and similar endpoints). This function
+// instead uses a Refresh Token flow: the site owner (fiveseveneighty)
+// authorized once via the Authorization Code flow, and the resulting
+// long-lived refresh token (stored as a Cloudflare secret) is used to
+// mint a fresh access token on each cold request. That access token
+// is used against /v1/me/playlists, which works for user-authorized
+// tokens.
 //
 // Required Cloudflare Pages environment variables:
 //   SPOTIFY_CLIENT_ID
 //   SPOTIFY_CLIENT_SECRET
+//   SPOTIFY_REFRESH_TOKEN
 //
 // Set these in the Cloudflare dashboard:
 //   Pages project -> Settings -> Environment variables (Production + Preview)
-// Never commit the Client Secret to the repo.
+// Never commit these values to the repo.
+//
+// If SPOTIFY_REFRESH_TOKEN ever stops working (revoked, password change,
+// etc.), redo the one-time Authorization Code flow as fiveseveneighty and
+// update this env var with the new refresh token.
 
-const SPOTIFY_USER_ID = 'fiveseveneighty';
 const MIXES_SINCE = new Date('2026-03-01');
 const CACHE_TTL_SECONDS = 600; // 10 minutes
 
@@ -30,12 +39,12 @@ export async function onRequestGet(context) {
   const cached = await cache.match(cacheKey);
   if (cached) return cached;
 
-  if (!env.SPOTIFY_CLIENT_ID || !env.SPOTIFY_CLIENT_SECRET) {
+  if (!env.SPOTIFY_CLIENT_ID || !env.SPOTIFY_CLIENT_SECRET || !env.SPOTIFY_REFRESH_TOKEN) {
     return jsonResponse({ error: 'MISSING_CREDENTIALS' }, 500);
   }
 
   try {
-    const token = await getClientCredentialsToken(env);
+    const token = await getAccessTokenFromRefreshToken(env);
     const candidates = await getUserPlaylists(token);
     const publicCandidates = candidates.filter(p => p && p.public !== false);
 
@@ -72,7 +81,7 @@ export async function onRequestGet(context) {
   }
 }
 
-async function getClientCredentialsToken(env) {
+async function getAccessTokenFromRefreshToken(env) {
   const basic = btoa(`${env.SPOTIFY_CLIENT_ID}:${env.SPOTIFY_CLIENT_SECRET}`);
   const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
@@ -80,7 +89,10 @@ async function getClientCredentialsToken(env) {
       'Authorization': `Basic ${basic}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: 'grant_type=client_credentials',
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: env.SPOTIFY_REFRESH_TOKEN,
+    }),
   });
   if (!res.ok) throw new Error(`TOKEN_ERROR_${res.status}`);
   const data = await res.json();
@@ -90,7 +102,7 @@ async function getClientCredentialsToken(env) {
 
 async function getUserPlaylists(token) {
   let playlists = [];
-  let url = `https://api.spotify.com/v1/users/${SPOTIFY_USER_ID}/playlists?limit=50`;
+  let url = 'https://api.spotify.com/v1/me/playlists?limit=50';
   while (url) {
     const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
     if (res.status === 429) throw new Error('RATE_LIMITED');
