@@ -54,7 +54,7 @@ export async function onRequestGet(context) {
     // limiting and Cloudflare Workers' subrequest limits. BATCH_SIZE keeps
     // concurrency modest; the whole thing is cached for CACHE_TTL_SECONDS
     // afterward so this cost is only paid occasionally, not per visitor.
-    const details = await fetchDetailsInBatches(token, publicCandidates, 5);
+    const { results: details, errors: fetchErrors } = await fetchDetailsInBatches(token, publicCandidates, 5);
 
     // Apply the same cutoff rule the frontend used:
     //   - if a playlist has no dated tracks, include it
@@ -86,6 +86,7 @@ export async function onRequestGet(context) {
         skippedDueToError: publicCandidates.length - details.length,
         qualifying: qualifying.length,
       };
+      payload.sampleErrors = fetchErrors.slice(0, 10);
     }
 
     const response = jsonResponse(payload, 200, debug ? null : CACHE_TTL_SECONDS);
@@ -135,6 +136,7 @@ async function getUserPlaylists(token) {
 
 async function fetchDetailsInBatches(token, playlists, batchSize) {
   const results = [];
+  const errors = [];
   for (let i = 0; i < playlists.length; i += batchSize) {
     const batch = playlists.slice(i, i + batchSize);
     const batchResults = await Promise.all(
@@ -145,14 +147,15 @@ async function fetchDetailsInBatches(token, playlists, batchSize) {
         } catch (err) {
           // Skip a single problem playlist rather than failing the whole
           // response — a transient error on one playlist shouldn't take
-          // down the entire mixes list.
+          // down the entire mixes list. Record why, for debug mode.
+          errors.push({ id: p.id, name: p.name, error: String(err.message || err) });
           return null;
         }
       })
     );
     results.push(...batchResults.filter(Boolean));
   }
-  return results;
+  return { results, errors };
 }
 
 async function fetchPlaylistDetail(token, id) {
