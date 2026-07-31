@@ -62,8 +62,8 @@ export async function onRequestGet(context) {
     //     after MIXES_SINCE
     const qualifying = details
       .filter(({ detail }) => {
-        const items = detail.tracks?.items || [];
-        const dates = items.map(t => (t.added_at ? new Date(t.added_at) : null)).filter(Boolean);
+        const entries = detail.items?.entries || [];
+        const dates = entries.map(e => (e.added_at ? new Date(e.added_at) : null)).filter(Boolean);
         if (!dates.length) return true;
         return new Date(Math.min(...dates)) >= MIXES_SINCE;
       })
@@ -144,31 +144,31 @@ async function fetchDetailsInBatches(token, playlists, batchSize) {
 }
 
 async function fetchPlaylistDetail(token, id) {
-  const [metaRes, tracksRes] = await Promise.all([
-    fetch(`https://api.spotify.com/v1/playlists/${id}?fields=name,images,external_urls,tracks.total`, {
+  const [metaRes, itemsRes] = await Promise.all([
+    fetch(`https://api.spotify.com/v1/playlists/${id}?fields=name,images,external_urls,items.total`, {
       headers: { Authorization: `Bearer ${token}` },
     }),
-    fetch(`https://api.spotify.com/v1/playlists/${id}/tracks?fields=items(added_at,track(duration_ms))&limit=100`, {
+    fetch(`https://api.spotify.com/v1/playlists/${id}/items?fields=items(added_at,item(duration_ms))&limit=100`, {
       headers: { Authorization: `Bearer ${token}` },
     }),
   ]);
   if (!metaRes.ok) throw new Error(`PLAYLIST_META_ERROR_${metaRes.status}`);
-  if (!tracksRes.ok) throw new Error(`PLAYLIST_TRACKS_ERROR_${tracksRes.status}`);
+  if (!itemsRes.ok) throw new Error(`PLAYLIST_ITEMS_ERROR_${itemsRes.status}`);
   const meta = await metaRes.json();
-  const tracks = await tracksRes.json();
+  const itemsData = await itemsRes.json();
   return {
     ...meta,
-    tracks: {
-      total: meta.tracks?.total || 0,
-      items: tracks.items || [],
+    items: {
+      total: meta.items?.total || 0,
+      entries: itemsData.items || [],
     },
   };
 }
 
 function summarize(playlist, detail) {
-  const items = detail.tracks?.items || [];
-  const totalMs = items.reduce((sum, t) => sum + (t.track?.duration_ms || 0), 0);
-  const dates = items.map(t => (t.added_at ? new Date(t.added_at) : null)).filter(Boolean);
+  const entries = detail.items?.entries || [];
+  const totalMs = entries.reduce((sum, e) => sum + (e.item?.duration_ms || 0), 0);
+  const dates = entries.map(e => (e.added_at ? new Date(e.added_at) : null)).filter(Boolean);
   const newest = dates.length ? new Date(Math.max(...dates)) : null;
   const img = detail.images?.[0]?.url || playlist.images?.[0]?.url || null;
   const url = detail.external_urls?.spotify || `https://open.spotify.com/playlist/${playlist.id}`;
@@ -178,7 +178,7 @@ function summarize(playlist, detail) {
     name: detail.name || playlist.name,
     image: img,
     url,
-    trackCount: detail.tracks?.total || items.length,
+    trackCount: detail.items?.total || entries.length,
     totalDurationMs: totalMs,
     newestAddedAt: newest ? newest.toISOString() : null,
   };
