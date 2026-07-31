@@ -26,6 +26,7 @@
 // etc.), redo the one-time Authorization Code flow as fiveseveneighty and
 // update this env var with the new refresh token.
 
+const SPOTIFY_OWNER_ID = 'fiveseveneighty';
 const MIXES_SINCE = new Date('2026-03-01');
 const CACHE_TTL_SECONDS = 600; // 10 minutes
 
@@ -46,7 +47,13 @@ export async function onRequestGet(context) {
   try {
     const token = await getAccessTokenFromRefreshToken(env);
     const candidates = await getUserPlaylists(token);
-    const publicCandidates = candidates.filter(p => p && p.public !== false);
+    // Only playlists fiveseveneighty actually owns. Followed playlists
+    // (owned by other Spotify users) 403 on the /items endpoint even when
+    // marked public — Spotify restricts item-level access to owned
+    // playlists under this API version. Filtering here also trims
+    // subrequest count for free.
+    const ownedCandidates = candidates.filter(p => p?.owner?.id === SPOTIFY_OWNER_ID);
+    const publicCandidates = ownedCandidates.filter(p => p && p.public !== false);
 
     // Fetch meta + tracks for every candidate, in small sequential batches.
     // With 100+ playlists on this account, firing everything at once in a
@@ -79,14 +86,23 @@ export async function onRequestGet(context) {
     const debug = new URL(request.url).searchParams.get('debug');
     const payload = { mixes: qualifying, generatedAt: new Date().toISOString() };
     if (debug) {
+      const subrequestCapErrors = fetchErrors.filter(e => /too many subrequests/i.test(e.error));
+      const spotify403Errors = fetchErrors.filter(e => /PLAYLIST_ITEMS_ERROR_403/.test(e.error));
+      const otherErrors = fetchErrors.filter(
+        e => !/too many subrequests/i.test(e.error) && !/PLAYLIST_ITEMS_ERROR_403/.test(e.error)
+      );
       payload.counts = {
         totalPlaylists: candidates.length,
+        ownedPlaylists: ownedCandidates.length,
         publicPlaylists: publicCandidates.length,
         detailsFetched: details.length,
         skippedDueToError: publicCandidates.length - details.length,
+        skippedDueToSubrequestCap: subrequestCapErrors.length,
+        skippedDueToSpotify403: spotify403Errors.length,
+        skippedDueToOtherError: otherErrors.length,
         qualifying: qualifying.length,
       };
-      payload.sampleErrors = fetchErrors.slice(0, 10);
+      payload.sampleErrors = fetchErrors.slice(0, 15);
     }
 
     const response = jsonResponse(payload, 200, debug ? null : CACHE_TTL_SECONDS);
