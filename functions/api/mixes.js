@@ -48,15 +48,18 @@ export async function onRequestGet(context) {
     const candidates = await getUserPlaylists(token);
     const publicCandidates = candidates.filter(p => p && p.public !== false);
 
-    // Fetch meta + tracks for every candidate in parallel, then apply the
-    // same cutoff rule the frontend used:
+    // Fetch meta + tracks for every candidate, in small sequential batches.
+    // With 100+ playlists on this account, firing everything at once in a
+    // single Promise.all (2 requests per playlist) risks Spotify rate
+    // limiting and Cloudflare Workers' subrequest limits. BATCH_SIZE keeps
+    // concurrency modest; the whole thing is cached for CACHE_TTL_SECONDS
+    // afterward so this cost is only paid occasionally, not per visitor.
+    const details = await fetchDetailsInBatches(token, publicCandidates, 5);
+
+    // Apply the same cutoff rule the frontend used:
     //   - if a playlist has no dated tracks, include it
     //   - otherwise include it only if its EARLIEST track date is on or
     //     after MIXES_SINCE
-    const details = await Promise.all(
-      publicCandidates.map(p => fetchPlaylistDetail(token, p.id).then(detail => ({ playlist: p, detail })))
-    );
-
     const qualifying = details
       .filter(({ detail }) => {
         const items = detail.tracks?.items || [];
@@ -114,15 +117,41 @@ async function getUserPlaylists(token) {
   return playlists;
 }
 
+async function fetchDetailsInBatches(token, playlists, batchSize) {
+  const results = [];
+  for (let i = 0; i < playlists.length; i += batchSize) {
+    const batch = playlists.slice(i, i + batchSize);
+    const batchResults = await Promise.all(
+      batch.map(async p => {
+        try {
+          const detail = await fetchPlaylistDetail(token, p.id);
+          return { playlist: p, detail };
+        } catch (err) {
+          // Skip a single problem playlist rather than failing the whole
+          // response — a transient error on one playlist shouldn't take
+          // down the entire mixes list.
+          return null;
+        }
+      })
+    );
+    results.push(...batchResults.filter(Boolean));
+  }
+  return results;
+}
+
 async function fetchPlaylistDetail(token, id) {
-  const [meta, tracks] = await Promise.all([
+  const [metaRes, tracksRes] = await Promise.all([
     fetch(`https://api.spotify.com/v1/playlists/${id}?fields=name,images,external_urls,tracks.total`, {
       headers: { Authorization: `Bearer ${token}` },
-    }).then(r => r.json()),
+    }),
     fetch(`https://api.spotify.com/v1/playlists/${id}/tracks?fields=items(added_at,track(duration_ms))&limit=100`, {
       headers: { Authorization: `Bearer ${token}` },
-    }).then(r => r.json()),
+    }),
   ]);
+  if (!metaRes.ok) throw new Error(`PLAYLIST_META_ERROR_${metaRes.status}`);
+  if (!tracksRes.ok) throw new Error(`PLAYLIST_TRACKS_ERROR_${tracksRes.status}`);
+  const meta = await metaRes.json();
+  const tracks = await tracksRes.json();
   return {
     ...meta,
     tracks: {
