@@ -196,7 +196,7 @@
     const groups = [];
     const seen = {};
     visible.forEach(mix => {
-      const month = mix.newestAddedAt ? monthLabel(mix.newestAddedAt) : 'Unknown';
+      const month = mix.oldestAddedAt ? monthLabel(mix.oldestAddedAt) : 'Unknown';
       if (!seen[month]) { seen[month] = []; groups.push({ month, items: seen[month] }); }
       seen[month].push(mix);
     });

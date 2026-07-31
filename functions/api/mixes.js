@@ -78,11 +78,13 @@ export async function onRequestGet(context) {
     // through the owner/public/fetch-success filters above.
     const qualifying = details.map(({ playlist, detail }) => summarize(playlist, detail));
 
-    // Newest mixes first.
+    // Most recently created mix first. Uses oldestAddedAt (earliest track's
+    // added_at) as a proxy for playlist creation date, so a playlist that
+    // gets edited/added-to later doesn't jump to the top out of sequence.
     qualifying.sort((a, b) => {
-      if (!a.newestAddedAt) return 1;
-      if (!b.newestAddedAt) return -1;
-      return new Date(b.newestAddedAt) - new Date(a.newestAddedAt);
+      if (!a.oldestAddedAt) return 1;
+      if (!b.oldestAddedAt) return -1;
+      return new Date(b.oldestAddedAt) - new Date(a.oldestAddedAt);
     });
 
     const debug = new URL(request.url).searchParams.get('debug');
@@ -200,6 +202,11 @@ function summarize(playlist, detail) {
   const totalMs = entries.reduce((sum, e) => sum + (e.item?.duration_ms || 0), 0);
   const dates = entries.map(e => (e.added_at ? new Date(e.added_at) : null)).filter(Boolean);
   const newest = dates.length ? new Date(Math.max(...dates)) : null;
+  // Spotify's API has no true playlist creation-date field, so the
+  // earliest track's added_at is used as a proxy for "when this mix was
+  // made" — much more stable than newestAddedAt for playlists that aren't
+  // edited after the fact (which is the normal case for these mixes).
+  const oldest = dates.length ? new Date(Math.min(...dates)) : null;
   const img = playlist.images?.[0]?.url || null;
   const url = playlist.external_urls?.spotify || `https://open.spotify.com/playlist/${playlist.id}`;
 
@@ -211,6 +218,7 @@ function summarize(playlist, detail) {
     trackCount: playlist.items?.total ?? entries.length,
     totalDurationMs: totalMs,
     newestAddedAt: newest ? newest.toISOString() : null,
+    oldestAddedAt: oldest ? oldest.toISOString() : null,
   };
 }
 
