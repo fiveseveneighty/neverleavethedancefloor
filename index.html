@@ -138,154 +138,14 @@
 
 
 <script>
-  // ─── NLTDF Spotify Config ───────────────────────────────────────────────
-  const SPOTIFY_CLIENT_ID = '06532c6d580f458aba98f41fdf71f344';
-  const SPOTIFY_REDIRECT  = window.location.origin + window.location.pathname.replace(/index\.html$/, '').replace(/\/$/, '') + '/';
-  const MIXES_SINCE       = new Date('2026-03-01');
-  const MAX_MIXES         = 4;
+  // ─── NLTDF Mixes (served via Cloudflare Pages Function) ────────────────
+  // The function at functions/api/mixes.js handles Spotify auth and
+  // playlist fetching server-side (owned + public playlists only — no
+  // date filtering, since playlist cleanup means every public playlist
+  // is a legitimate mix). No visitor OAuth, no client-side Spotify calls.
+  const MIXES_ENDPOINT = '/api/mixes';
+  const MAX_MIXES      = 4;
   // ────────────────────────────────────────────────────────────────────────
-
-  const SCOPES = 'playlist-read-private playlist-read-collaborative';
-
-  // ── Token helpers ────────────────────────────────────────────────────────
-  function saveToken(token, expiresIn, refreshToken) {
-    const expiry = Date.now() + expiresIn * 1000;
-    localStorage.setItem('nltdf_sp_token', token);
-    localStorage.setItem('nltdf_sp_expiry', expiry);
-    if (refreshToken) localStorage.setItem('nltdf_sp_refresh', refreshToken);
-  }
-
-  function getToken() {
-    const token  = localStorage.getItem('nltdf_sp_token');
-    const expiry = localStorage.getItem('nltdf_sp_expiry');
-    if (!token || !expiry) return null;
-    if (Date.now() > parseInt(expiry) - 60000) return null; // expired or <1min left
-    return token;
-  }
-
-  async function refreshToken() {
-    const refresh = localStorage.getItem('nltdf_sp_refresh');
-    if (!refresh) return null;
-    try {
-      const res = await fetch('https://accounts.spotify.com/api/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type:    'refresh_token',
-          refresh_token: refresh,
-          client_id:     SPOTIFY_CLIENT_ID,
-        }),
-      });
-      const data = await res.json();
-      if (data.access_token) {
-        saveToken(data.access_token, data.expires_in, data.refresh_token || refresh);
-        return data.access_token;
-      }
-    } catch (e) {
-      console.error('Token refresh failed:', e);
-    }
-    return null;
-  }
-
-  async function getValidToken() {
-    const token = getToken();
-    if (token) return token;
-    // Try silent refresh
-    const refreshed = await refreshToken();
-    if (refreshed) return refreshed;
-    return null;
-  }
-
-  // ── PKCE helpers ─────────────────────────────────────────────────────────
-  function generateRandom(length) {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-    const arr = new Uint8Array(length);
-    crypto.getRandomValues(arr);
-    return Array.from(arr).map(b => chars[b % chars.length]).join('');
-  }
-
-  async function sha256(plain) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(plain);
-    return crypto.subtle.digest('SHA-256', data);
-  }
-
-  function base64urlencode(buffer) {
-    return btoa(String.fromCharCode(...new Uint8Array(buffer)))
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-
-  async function startOAuth() {
-    const verifier  = generateRandom(64);
-    const challenge = base64urlencode(await sha256(verifier));
-    localStorage.setItem('nltdf_sp_verifier', verifier);
-    const params = new URLSearchParams({
-      response_type: 'code',
-      client_id:     SPOTIFY_CLIENT_ID,
-      scope:         SCOPES,
-      redirect_uri:  SPOTIFY_REDIRECT,
-      code_challenge_method: 'S256',
-      code_challenge: challenge,
-    });
-    window.location = 'https://accounts.spotify.com/authorize?' + params;
-  }
-
-  async function exchangeCode(code) {
-    const verifier = localStorage.getItem('nltdf_sp_verifier');
-    const res = await fetch('https://accounts.spotify.com/api/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type:    'authorization_code',
-        code,
-        redirect_uri:  SPOTIFY_REDIRECT,
-        client_id:     SPOTIFY_CLIENT_ID,
-        code_verifier: verifier,
-      }),
-    });
-    const data = await res.json();
-    if (data.access_token) {
-      saveToken(data.access_token, data.expires_in, data.refresh_token);
-      localStorage.removeItem('nltdf_sp_verifier');
-      // Clean the URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-    return data.access_token;
-  }
-
-  // ── Spotify API ──────────────────────────────────────────────────────────
-  async function getUserPlaylists(token) {
-    let playlists = [];
-    let url = 'https://api.spotify.com/v1/me/playlists?limit=50';
-    while (url) {
-      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-      if (res.status === 429) throw new Error('RATE_LIMITED');
-      if (res.status === 401) throw new Error('TOKEN_EXPIRED');
-      if (!res.ok) throw new Error(`SPOTIFY_ERROR_${res.status}`);
-      const data = await res.json();
-      playlists  = playlists.concat(data.items || []);
-      url        = data.next || null;
-    }
-    return playlists;
-  }
-
-  async function fetchPlaylistDetail(token, id) {
-    // Fetch playlist meta (images, name, external_urls) and tracks separately
-    const [meta, tracks] = await Promise.all([
-      fetch(`https://api.spotify.com/v1/playlists/${id}?fields=name,images,external_urls,tracks.total`,
-        { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json()),
-      fetch(`https://api.spotify.com/v1/playlists/${id}/tracks?fields=items(added_at,track(duration_ms))&limit=100`,
-        { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json()),
-    ]);
-    // Merge into a single object matching what the render function expects
-    return {
-      ...meta,
-      tracks: {
-        total: meta.tracks?.total || 0,
-        items: tracks.items || [],
-      },
-    };
-  }
 
   function fmtDuration(ms) {
     const totalMin = Math.round(ms / 60000);
@@ -294,9 +154,9 @@
     return h > 0 ? `${h}h ${m}m` : `${m} min`;
   }
 
-  function fmtDate(dateStr) {
-    if (!dateStr) return '';
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  function monthLabel(dateStr) {
+    if (!dateStr) return 'Unknown';
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   }
 
   function renderMixRow(name, meta, img, url) {
@@ -327,171 +187,75 @@
       </div>`;
   }
 
-  function renderConnectButton() {
-    return `<div style="padding:4px 0;">
-      <button onclick="startOAuth()" style="font-family:'Josefin Sans',sans-serif;font-size:9px;font-weight:600;letter-spacing:0.15em;text-transform:uppercase;color:#1db954;border:1px solid rgba(29,185,84,0.35);background:rgba(29,185,84,0.07);padding:7px 14px;cursor:pointer;">
-        ▶ Connect Spotify
-      </button>
-    </div>`;
-  }
+  function renderMixList(mixes, showAll) {
+    // Group by month, using each mix's newest track date (already computed
+    // server-side). Order is preserved from the API response (newest first).
+    const visible = showAll ? mixes : mixes.slice(0, MAX_MIXES);
+    const remaining = mixes.length - visible.length;
 
-  // All fetched mix data stored here for pagination
-  let allMixDetails = [];
-  let allMixCandidates = [];
-  let spotifyToken = null;
-
-  function monthLabel(dateStr) {
-    if (!dateStr) return 'Unknown';
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  }
-
-  function renderMixList(details, showAll, hasMore = false, remaining = 0) {
-    const visible = details;
-
-    // Group by month (using newest track date)
     const groups = [];
     const seen = {};
-    visible.forEach(({ playlist, detail }) => {
-      const tracks = detail.tracks?.items || [];
-      const dates = tracks.map(t => t.added_at ? new Date(t.added_at) : null).filter(Boolean);
-      const newest = dates.length ? new Date(Math.max(...dates)) : null;
-      const month = newest ? monthLabel(newest.toISOString()) : 'Unknown';
+    visible.forEach(mix => {
+      const month = mix.newestAddedAt ? monthLabel(mix.newestAddedAt) : 'Unknown';
       if (!seen[month]) { seen[month] = []; groups.push({ month, items: seen[month] }); }
-      seen[month].push({ playlist, detail, newest });
+      seen[month].push(mix);
     });
 
     let html = '';
     groups.forEach(({ month, items }) => {
-      // Thin line with month inline
       html += `<div style="display:flex;align-items:center;gap:10px;margin:16px 0 12px;">
         <span style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:#444;white-space:nowrap;">${month}</span>
         <div style="flex:1;height:1px;background:rgba(255,255,255,0.06);"></div>
       </div>`;
-      items.forEach(({ playlist, detail }) => {
-        const tracks = detail.tracks?.items || [];
-        const totalMs = tracks.reduce((sum, t) => sum + (t.track?.duration_ms || 0), 0);
-        const trackCount = detail.tracks?.total || tracks.length;
-        const img = detail.images?.[0]?.url || playlist.images?.[0]?.url || null;
-        const url = detail.external_urls?.spotify || `https://open.spotify.com/playlist/${playlist.id}`;
-        const dur = totalMs > 0 ? fmtDuration(totalMs) : '—';
-        const meta = [`${trackCount} tracks`, dur].filter(Boolean).join(' · ');
-        html += renderMixRow(playlist.name, meta, img, url);
+      items.forEach(mix => {
+        const dur = mix.totalDurationMs > 0 ? fmtDuration(mix.totalDurationMs) : '—';
+        const meta = [`${mix.trackCount} tracks`, dur].filter(Boolean).join(' · ');
+        html += renderMixRow(mix.name, meta, mix.image, mix.url);
       });
     });
 
-    if (hasMore) {
-      html += `<div style="padding:14px 0 2px;">
-        <button id="mixes-more-btn" onclick="showAllMixes()" style="font-family:'Josefin Sans',sans-serif;font-size:9px;font-weight:600;letter-spacing:0.15em;text-transform:uppercase;color:#e8789c;border:1px solid rgba(232,120,156,0.3);background:rgba(232,120,156,0.06);padding:7px 14px;cursor:pointer;width:100%;">
-          + ${remaining} more
-        </button>
-      </div>`;
+    if (remaining > 0) {
+      html += `<button id="mix-more-btn" style="width:100%;margin-top:12px;padding:10px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:#999;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;">+ ${remaining} More</button>`;
     }
 
     return html;
   }
 
-  async function showAllMixes() {
+  let allMixes = [];
+
+  function renderAndWire(showAll) {
     const container = document.getElementById('mix-list');
     if (!container) return;
-
-    const btn = document.getElementById('mixes-more-btn');
-    if (btn) btn.textContent = 'Loading...';
-
-    const remaining = allMixCandidates.slice(MAX_MIXES);
-    const token = await getValidToken();
-    if (!token) { container.innerHTML = renderConnectButton(); return; }
-    const newDetails = await Promise.all(
-      remaining.map(p => fetchPlaylistDetail(token, p.id).then(d => ({ playlist: p, detail: d })))
-    );
-    // Filter to only mixes since cutoff
-    const filtered = newDetails.filter(({ detail }) => {
-      const items = detail.tracks?.items || [];
-      const dates = items.map(t => t.added_at ? new Date(t.added_at) : null).filter(Boolean);
-      if (!dates.length) return true; // include if no date info
-      return new Date(Math.min(...dates)) >= MIXES_SINCE;
-    });
-    allMixDetails = [...allMixDetails, ...filtered];
-    container.innerHTML = renderMixList(allMixDetails, true, false, 0);
+    container.innerHTML = renderMixList(allMixes, showAll);
+    const moreBtn = document.getElementById('mix-more-btn');
+    if (moreBtn) moreBtn.addEventListener('click', () => renderAndWire(true));
   }
 
-  async function loadMixes(token) {
+  async function loadMixes() {
     const container = document.getElementById('mix-list');
     if (!container) return;
 
     container.innerHTML = Array(MAX_MIXES).fill(0).map(skeletonRow).join('');
 
     try {
-      const all = await getUserPlaylists(token);
-      const candidates = all.filter(p => p.public !== false);
-      // Filter candidates to only those created after MIXES_SINCE
-      // We'll verify dates after fetching first batch details
-      allMixCandidates = candidates; // store all for later
+      const res = await fetch(MIXES_ENDPOINT);
+      if (!res.ok) throw new Error(`MIXES_ERROR_${res.status}`);
+      const data = await res.json();
+      allMixes = data.mixes || [];
 
-      // Only fetch details for the first batch — load rest on demand
-      const firstBatch = candidates.slice(0, MAX_MIXES);
-      const details = await Promise.all(
-        firstBatch.map(p => fetchPlaylistDetail(token, p.id).then(d => ({ playlist: p, detail: d })))
-      );
-
-      // Filter to playlists since MIXES_SINCE based on track dates
-      const filteredDetails = details.filter(({ detail }) => {
-        const items = detail.tracks?.items || [];
-        const dates = items.map(t => t.added_at ? new Date(t.added_at) : null).filter(Boolean);
-        if (!dates.length) return true;
-        return new Date(Math.min(...dates)) >= MIXES_SINCE;
-      });
-      allMixDetails = filteredDetails;
-      // Count how many remaining candidates there are beyond first batch
-      const hasMore = candidates.length > MAX_MIXES;
-
-      if (allMixDetails.length === 0) {
+      if (allMixes.length === 0) {
         container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">No mixes found yet.</div>`;
         return;
       }
 
-      container.innerHTML = renderMixList(allMixDetails, false, hasMore, candidates.length - MAX_MIXES);
-
+      renderAndWire(false);
     } catch (err) {
-      console.error('Spotify load failed:', err);
-      if (err.message === 'RATE_LIMITED') {
-        container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Spotify is rate limited — try again in a minute.</div>`;
-      } else if (err.message === 'TOKEN_EXPIRED') {
-        // Clear stale token and show connect button
-        localStorage.removeItem('nltdf_sp_token');
-        localStorage.removeItem('nltdf_sp_expiry');
-        container.innerHTML = renderConnectButton();
-      } else {
-        container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Could not load mixes.</div>`;
-      }
+      console.error('Mixes load failed:', err);
+      container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Could not load mixes.</div>`;
     }
   }
 
-  // ── Boot ─────────────────────────────────────────────────────────────────
-  async function boot() {
-    const container = document.getElementById('mix-list');
-    if (!container) return;
-
-    // Handle OAuth callback
-    const params = new URLSearchParams(window.location.search);
-    const code   = params.get('code');
-    if (code) {
-      container.innerHTML = Array(MAX_MIXES).fill(0).map(skeletonRow).join('');
-      const token = await exchangeCode(code);
-      if (token) { await loadMixes(token); return; }
-    }
-
-    // Check for existing token (or silently refresh)
-    const token = await getValidToken();
-    if (token) {
-      await loadMixes(token);
-      return;
-    }
-
-    // No token — show connect button
-    container.innerHTML = renderConnectButton();
-  }
-
-  document.addEventListener('DOMContentLoaded', boot);
+  document.addEventListener('DOMContentLoaded', loadMixes);
 
   // ─── YouTube Config ──────────────────────────────────────────────────────
   const YT_API_KEY     = 'AIzaSyD0fAm9iOXtdipNQDw0GSF63LW50-Zn7RY';

@@ -27,7 +27,6 @@
 // update this env var with the new refresh token.
 
 const SPOTIFY_OWNER_ID = 'fiveseveneighty';
-const MIXES_SINCE = new Date('2026-03-01');
 const CACHE_TTL_SECONDS = 600; // 10 minutes
 
 export async function onRequestGet(context) {
@@ -56,6 +55,16 @@ export async function onRequestGet(context) {
     const publicCandidates = ownedCandidates.filter(p => p && p.public !== false);
 
     // Fetch meta + tracks for every candidate, in small sequential batches.
+    // Note: Cloudflare Workers enforces a hard cap on total subrequests per
+    // invocation (not a concurrency/rate limit — a cumulative count). With
+    // ~46 owned+public playlists this sits right at that ceiling, so an
+    // occasional single playlist may be skipped with a "too many
+    // subrequests" error on a given run. That playlist will simply appear
+    // on the next cache refresh (10 min) instead. If this becomes a
+    // frequent, larger gap as the playlist count grows, the fix is to
+    // reduce total subrequests further (e.g. paginate playlist fetching
+    // itself, cache per-playlist results independently) rather than tune
+    // batch size, which doesn't affect the total-count cap.
     // With 100+ playlists on this account, firing everything at once in a
     // single Promise.all (2 requests per playlist) risks Spotify rate
     // limiting and Cloudflare Workers' subrequest limits. BATCH_SIZE keeps
@@ -63,18 +72,11 @@ export async function onRequestGet(context) {
     // afterward so this cost is only paid occasionally, not per visitor.
     const { results: details, errors: fetchErrors } = await fetchDetailsInBatches(token, publicCandidates, 5);
 
-    // Apply the same cutoff rule the frontend used:
-    //   - if a playlist has no dated tracks, include it
-    //   - otherwise include it only if its EARLIEST track date is on or
-    //     after MIXES_SINCE
-    const qualifying = details
-      .filter(({ detail }) => {
-        const entries = detail.entries || [];
-        const dates = entries.map(e => (e.added_at ? new Date(e.added_at) : null)).filter(Boolean);
-        if (!dates.length) return true;
-        return new Date(Math.min(...dates)) >= MIXES_SINCE;
-      })
-      .map(({ playlist, detail }) => summarize(playlist, detail));
+    // Every owned, public playlist is now a legitimate mix (playlists that
+    // predate NLTDF or don't belong have been cleaned up manually), so no
+    // date filtering is needed — just summarize everything that made it
+    // through the owner/public/fetch-success filters above.
+    const qualifying = details.map(({ playlist, detail }) => summarize(playlist, detail));
 
     // Newest mixes first.
     qualifying.sort((a, b) => {
