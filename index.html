@@ -129,13 +129,7 @@
     </div>
     <div class="card right">
       <div class="label">Upcoming shows</div>
-      <div class="cal-row next"><span class="cal-next">Next up</span><div class="cal-top"><div><div class="cal-date">Thu · Jul 24 · 10pm</div><div class="cal-name">DJ BL3SS</div><div class="cal-venue">Club Vinyl · Denver</div><div class="cal-detail">Free before 11</div></div><a class="cal-tickets" href="file:///Users/dansaltzman/Downloads/nltdf-city-bg.html#">Tickets →</a></div></div>
-      <div class="cal-row"><div class="cal-top"><div><div class="cal-date">Fri · Aug 02 · 9pm</div><div class="cal-name">Show Name</div><div class="cal-venue">Venue · Denver</div><div class="cal-detail">Techno · House</div></div><a class="cal-tickets" href="file:///Users/dansaltzman/Downloads/nltdf-city-bg.html#">Tickets →</a></div></div>
-      <div class="cal-row"><div class="cal-top"><div><div class="cal-date">Sat · Aug 09 · 10pm</div><div class="cal-name">Show Name</div><div class="cal-venue">Venue · Denver</div><div class="cal-detail">EDM</div></div><span class="cal-tba">TBA</span></div></div>
-      <div class="cal-row"><div class="cal-top"><div><div class="cal-date">Fri · Aug 16 · 9pm</div><div class="cal-name">Show Name</div><div class="cal-venue">Venue · Denver</div><div class="cal-detail">Techno</div></div><a class="cal-tickets" href="file:///Users/dansaltzman/Downloads/nltdf-city-bg.html#">Tickets →</a></div></div>
-      <div class="cal-row"><div class="cal-top"><div><div class="cal-date">Sat · Aug 23 · 10pm</div><div class="cal-name">Show Name</div><div class="cal-venue">Venue · Denver</div><div class="cal-detail">House · Techno</div></div><span class="cal-tba">TBA</span></div></div>
-      <div class="cal-row"><div class="cal-top"><div><div class="cal-date">Fri · Aug 30 · 9pm</div><div class="cal-name">Show Name</div><div class="cal-venue">Venue · Denver</div><div class="cal-detail">EDM</div></div><a class="cal-tickets" href="file:///Users/dansaltzman/Downloads/nltdf-city-bg.html#">Tickets →</a></div></div>
-      <div class="cal-row"><div class="cal-top"><div><div class="cal-date">Sat · Sep 06 · 10pm</div><div class="cal-name">Show Name</div><div class="cal-venue">Venue · Denver</div><div class="cal-detail">Techno</div></div><a class="cal-tickets" href="file:///Users/dansaltzman/Downloads/nltdf-city-bg.html#">Tickets →</a></div></div>
+      <div id="cal-list"></div><a class="cal-tickets" href="file:///Users/dansaltzman/Downloads/nltdf-city-bg.html#">Tickets →</a></div></div>
     </div>
   </div>
 
@@ -154,10 +148,11 @@
   const SCOPES = 'playlist-read-private playlist-read-collaborative';
 
   // ── Token helpers ────────────────────────────────────────────────────────
-  function saveToken(token, expiresIn) {
+  function saveToken(token, expiresIn, refreshToken) {
     const expiry = Date.now() + expiresIn * 1000;
     localStorage.setItem('nltdf_sp_token', token);
     localStorage.setItem('nltdf_sp_expiry', expiry);
+    if (refreshToken) localStorage.setItem('nltdf_sp_refresh', refreshToken);
   }
 
   function getToken() {
@@ -166,6 +161,39 @@
     if (!token || !expiry) return null;
     if (Date.now() > parseInt(expiry) - 60000) return null; // expired or <1min left
     return token;
+  }
+
+  async function refreshToken() {
+    const refresh = localStorage.getItem('nltdf_sp_refresh');
+    if (!refresh) return null;
+    try {
+      const res = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type:    'refresh_token',
+          refresh_token: refresh,
+          client_id:     SPOTIFY_CLIENT_ID,
+        }),
+      });
+      const data = await res.json();
+      if (data.access_token) {
+        saveToken(data.access_token, data.expires_in, data.refresh_token || refresh);
+        return data.access_token;
+      }
+    } catch (e) {
+      console.error('Token refresh failed:', e);
+    }
+    return null;
+  }
+
+  async function getValidToken() {
+    const token = getToken();
+    if (token) return token;
+    // Try silent refresh
+    const refreshed = await refreshToken();
+    if (refreshed) return refreshed;
+    return null;
   }
 
   // ── PKCE helpers ─────────────────────────────────────────────────────────
@@ -217,7 +245,7 @@
     });
     const data = await res.json();
     if (data.access_token) {
-      saveToken(data.access_token, data.expires_in);
+      saveToken(data.access_token, data.expires_in, data.refresh_token);
       localStorage.removeItem('nltdf_sp_verifier');
       // Clean the URL
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -246,7 +274,7 @@
     const [meta, tracks] = await Promise.all([
       fetch(`https://api.spotify.com/v1/playlists/${id}?fields=name,images,external_urls,tracks.total`,
         { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json()),
-      fetch(`https://api.spotify.com/v1/playlists/${id}/tracks?fields=items(track(duration_ms))&limit=100`,
+      fetch(`https://api.spotify.com/v1/playlists/${id}/tracks?fields=items(added_at,track(duration_ms))&limit=100`,
         { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json()),
     ]);
     // Merge into a single object matching what the render function expects
@@ -370,11 +398,19 @@
     if (btn) btn.textContent = 'Loading...';
 
     const remaining = allMixCandidates.slice(MAX_MIXES);
-    const token = localStorage.getItem('nltdf_sp_token');
+    const token = await getValidToken();
+    if (!token) { container.innerHTML = renderConnectButton(); return; }
     const newDetails = await Promise.all(
       remaining.map(p => fetchPlaylistDetail(token, p.id).then(d => ({ playlist: p, detail: d })))
     );
-    allMixDetails = [...allMixDetails, ...newDetails];
+    // Filter to only mixes since cutoff
+    const filtered = newDetails.filter(({ detail }) => {
+      const items = detail.tracks?.items || [];
+      const dates = items.map(t => t.added_at ? new Date(t.added_at) : null).filter(Boolean);
+      if (!dates.length) return true; // include if no date info
+      return new Date(Math.min(...dates)) >= MIXES_SINCE;
+    });
+    allMixDetails = [...allMixDetails, ...filtered];
     container.innerHTML = renderMixList(allMixDetails, true, false, 0);
   }
 
@@ -387,6 +423,8 @@
     try {
       const all = await getUserPlaylists(token);
       const candidates = all.filter(p => p.public !== false);
+      // Filter candidates to only those created after MIXES_SINCE
+      // We'll verify dates after fetching first batch details
       allMixCandidates = candidates; // store all for later
 
       // Only fetch details for the first batch — load rest on demand
@@ -395,7 +433,15 @@
         firstBatch.map(p => fetchPlaylistDetail(token, p.id).then(d => ({ playlist: p, detail: d })))
       );
 
-      allMixDetails = details;
+      // Filter to playlists since MIXES_SINCE based on track dates
+      const filteredDetails = details.filter(({ detail }) => {
+        const items = detail.tracks?.items || [];
+        const dates = items.map(t => t.added_at ? new Date(t.added_at) : null).filter(Boolean);
+        if (!dates.length) return true;
+        return new Date(Math.min(...dates)) >= MIXES_SINCE;
+      });
+      allMixDetails = filteredDetails;
+      // Count how many remaining candidates there are beyond first batch
       const hasMore = candidates.length > MAX_MIXES;
 
       if (allMixDetails.length === 0) {
@@ -434,8 +480,8 @@
       if (token) { await loadMixes(token); return; }
     }
 
-    // Check for existing token
-    const token = getToken();
+    // Check for existing token (or silently refresh)
+    const token = await getValidToken();
     if (token) {
       await loadMixes(token);
       return;
@@ -534,6 +580,96 @@
   }
 
   document.addEventListener('DOMContentLoaded', loadSets);
+
+  // ─── Google Calendar Config ──────────────────────────────────────────────
+  const GCAL_API_KEY = 'AIzaSyD0fAm9iOXtdipNQDw0GSF63LW50-Zn7RY';
+  const GCAL_ID      = '04t6q307tih41nrcj5ue0mrunc@group.calendar.google.com';
+  const MAX_EVENTS   = 8;
+  // ────────────────────────────────────────────────────────────────────────
+
+  function fmtEventDate(dateStr) {
+    const d = new Date(dateStr);
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const day = days[d.getDay()];
+    const month = months[d.getMonth()];
+    const date = d.getDate();
+    let hours = d.getHours();
+    const ampm = hours >= 12 ? 'pm' : 'am';
+    hours = hours % 12 || 12;
+    return `${day} · ${month} ${date} · ${hours}${ampm}`;
+  }
+
+  function isFirstUpcoming(events, index) {
+    return index === 0;
+  }
+
+  function renderCalRow(event, isNext) {
+    const start = event.start.dateTime || event.start.date;
+    const dateStr = fmtEventDate(start);
+    const name = event.summary || 'TBA';
+    
+    // Parse description for venue, detail, and ticket URL
+    const desc = event.description || '';
+    const lines = desc.split('\n').map(l => l.trim()).filter(Boolean);
+    const venue = lines[0] || 'Denver';
+    const detail = lines[1] || '';
+    const ticketUrl = lines.find(l => l.startsWith('http')) || null;
+
+    const nextBadge = isNext ? `<span class="cal-next">Next up</span>` : '';
+    const ticketBtn = ticketUrl
+      ? `<a class="cal-tickets" href="${ticketUrl}" target="_blank" rel="noopener">Tickets →</a>`
+      : `<span class="cal-tba">TBA</span>`;
+
+    return `
+      <div class="cal-row${isNext ? ' next' : ''}">
+        ${nextBadge}
+        <div class="cal-top">
+          <div>
+            <div class="cal-date">${dateStr}</div>
+            <div class="cal-name">${name}</div>
+            <div class="cal-venue">${venue}</div>
+            ${detail ? `<div class="cal-detail">${detail}</div>` : ''}
+          </div>
+          ${ticketBtn}
+        </div>
+      </div>`;
+  }
+
+  async function loadCalendar() {
+    const container = document.getElementById('cal-list');
+    if (!container) return;
+
+    const now = new Date().toISOString();
+    const calId = encodeURIComponent(GCAL_ID);
+    const url = `https://www.googleapis.com/calendar/v3/calendars/${calId}/events?key=${GCAL_API_KEY}&timeMin=${now}&maxResults=${MAX_EVENTS}&singleEvents=true&orderBy=startTime`;
+
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (data.error) {
+        console.error('Calendar error:', data.error);
+        container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Could not load shows.</div>`;
+        return;
+      }
+
+      const events = data.items || [];
+      if (events.length === 0) {
+        container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">No upcoming shows.</div>`;
+        return;
+      }
+
+      container.innerHTML = events.map((e, i) => renderCalRow(e, i === 0)).join('');
+
+    } catch (err) {
+      console.error('Calendar load failed:', err);
+      container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Could not load shows.</div>`;
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', loadCalendar);
+
 
 </script>
 
