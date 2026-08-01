@@ -78,7 +78,7 @@
   .mix-row:last-child { border-bottom: none; }
   .mix-thumb { width: 38px; height: 38px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #444; font-size: 14px; }
   .mix-info { flex: 1; min-width: 0; }
-  .mix-title { font-size: 13px; font-weight: 600; color: #ddd; letter-spacing: 0.03em; }
+  .mix-title { font-size: 13px; font-weight: 600; color: #ddd; letter-spacing: 0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mix-meta { font-size: 9px; color: #555; margin-top: 3px; letter-spacing: 0.05em; }
   .mix-btns { display: flex; gap: 6px; flex-shrink: 0; }
   .mix-btn { font-family: 'Josefin Sans', sans-serif; font-size: 8px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; padding: 5px 10px; border: 1px solid; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
@@ -93,7 +93,7 @@
 
   .cal-row { padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
   .cal-row:last-child { border-bottom: none; }
-  .cal-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .cal-top { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; }
   .cal-next { font-size: 7px; letter-spacing: 0.15em; text-transform: uppercase; color: #e8789c; border: 1px solid rgba(232,120,156,0.3); padding: 1px 5px; margin-bottom: 6px; display: inline-block; }
   .cal-date { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: #444; margin-bottom: 4px; }
   .cal-row.next .cal-date { color: #e8789c; }
@@ -105,6 +105,27 @@
   .cal-tba { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; color: #333; white-space: nowrap; align-self: flex-start; padding-top: 3px; }
 
   footer { margin-top: 36px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.05); text-align: center; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: #222; }
+
+  /* RESPONSIVE: tablet and below — stack the two-column grid */
+  @media (max-width: 860px) {
+    .inner { padding: 0 20px 48px; }
+    .grid { grid-template-columns: 1fr; gap: 20px; }
+    .left, .right { grid-column: 1 / -1; }
+    header { padding: 36px 0 28px; }
+    .logo { max-width: 280px; }
+  }
+
+  /* RESPONSIVE: phone — tighten spacing, enlarge tap targets */
+  @media (max-width: 480px) {
+    .inner { padding: 0 14px 40px; }
+    .card { padding: 16px; }
+    .logo { max-width: 220px; }
+    header { padding: 28px 0 22px; margin-bottom: 24px; }
+    .mix-row, .set-row { gap: 10px; }
+    .mix-btn { padding: 8px 12px; font-size: 9px; }
+    .cal-tickets { padding: 8px 12px; font-size: 9px; }
+    .cal-name { font-size: 16px; }
+  }
 </style>
 </head>
 <body>
@@ -129,7 +150,7 @@
     </div>
     <div class="card right">
       <div class="label">Upcoming shows</div>
-      <div id="cal-list"></div><a class="cal-tickets" href="file:///Users/dansaltzman/Downloads/nltdf-city-bg.html#">Tickets →</a></div></div>
+      <div id="cal-list"></div>
     </div>
   </div>
 
