@@ -63,8 +63,8 @@
 
   /* GRID */
   .grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 16px; align-items: start; }
-  .left { grid-column: 1 / 4; display: flex; flex-direction: column; gap: 16px; }
-  .right { grid-column: 4 / 6; }
+  .left { grid-column: 1 / 4; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .right { grid-column: 4 / 6; min-width: 0; }
 
   .card {
     border: 1px solid rgba(255,255,255,0.08);
