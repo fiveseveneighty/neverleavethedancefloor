@@ -91,11 +91,6 @@
   .set-title { font-size: 12px; color: #bbb; }
   .set-dur { font-size: 9px; color: #444; text-align: right; }
 
-  .cal-scroll { max-height: 640px; overflow-y: auto; padding-right: 4px; }
-  .cal-scroll::-webkit-scrollbar { width: 6px; }
-  .cal-scroll::-webkit-scrollbar-track { background: transparent; }
-  .cal-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); }
-
   .cal-row { padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
   .cal-row:last-child { border-bottom: none; }
   .cal-top { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; }
@@ -154,7 +149,7 @@
     </div>
     <div class="card right">
       <div class="label">Upcoming shows</div>
-      <div id="cal-list" class="cal-scroll"></div>
+      <div id="cal-list"></div>
     </div>
   </div>
 
@@ -387,6 +382,8 @@
   const CALENDAR_ENDPOINT = '/api/calendar';
   // ────────────────────────────────────────────────────────────────────────
 
+  const MAX_EVENTS_SHOWN = 6;
+
   function monthLabelFromDate(dateStr) {
     return new Date(dateStr).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   }
@@ -435,6 +432,53 @@
       </div>`;
   }
 
+  function renderCalList(events, showAll) {
+    // Group by month, same visual pattern as the mixes/sets lists. The
+    // very first event overall (not first-per-group) gets the "Next up"
+    // badge. Pagination shows MAX_EVENTS_SHOWN initially; "+N More"
+    // reveals the rest from already-fetched data, no extra network call.
+    const visible = showAll ? events : events.slice(0, MAX_EVENTS_SHOWN);
+    const remaining = events.length - visible.length;
+
+    const groups = [];
+    const seen = {};
+    visible.forEach(e => {
+      const start = e.start.dateTime || e.start.date;
+      const month = monthLabelFromDate(start);
+      if (!seen[month]) { seen[month] = []; groups.push({ month, items: seen[month] }); }
+      seen[month].push(e);
+    });
+
+    let html = '';
+    let globalIndex = 0;
+    groups.forEach(({ month, items }) => {
+      html += `<div style="display:flex;align-items:center;gap:10px;margin:16px 0 12px;">
+        <span style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:#444;white-space:nowrap;">${month}</span>
+        <div style="flex:1;height:1px;background:rgba(255,255,255,0.06);"></div>
+      </div>`;
+      items.forEach(e => {
+        html += renderCalRow(e, globalIndex === 0);
+        globalIndex++;
+      });
+    });
+
+    if (remaining > 0) {
+      html += `<button id="cal-more-btn" style="width:100%;margin-top:12px;padding:10px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:#999;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;">+ ${remaining} More</button>`;
+    }
+
+    return html;
+  }
+
+  let allEvents = [];
+
+  function renderCalAndWire(showAll) {
+    const container = document.getElementById('cal-list');
+    if (!container) return;
+    container.innerHTML = renderCalList(allEvents, showAll);
+    const moreBtn = document.getElementById('cal-more-btn');
+    if (moreBtn) moreBtn.addEventListener('click', () => renderCalAndWire(true));
+  }
+
   async function loadCalendar() {
     const container = document.getElementById('cal-list');
     if (!container) return;
@@ -443,39 +487,14 @@
       const res = await fetch(CALENDAR_ENDPOINT);
       if (!res.ok) throw new Error(`CALENDAR_ERROR_${res.status}`);
       const data = await res.json();
-      const events = data.events || [];
+      allEvents = data.events || [];
 
-      if (events.length === 0) {
+      if (allEvents.length === 0) {
         container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">No upcoming shows.</div>`;
         return;
       }
 
-      // Group by month, same visual pattern as the mixes list. The very
-      // first event overall still gets the "Next up" badge regardless of
-      // which month group it falls in.
-      const groups = [];
-      const seen = {};
-      events.forEach(e => {
-        const start = e.start.dateTime || e.start.date;
-        const month = monthLabelFromDate(start);
-        if (!seen[month]) { seen[month] = []; groups.push({ month, items: seen[month] }); }
-        seen[month].push(e);
-      });
-
-      let html = '';
-      let globalIndex = 0;
-      groups.forEach(({ month, items }) => {
-        html += `<div style="display:flex;align-items:center;gap:10px;margin:16px 0 12px;">
-          <span style="font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:#444;white-space:nowrap;">${month}</span>
-          <div style="flex:1;height:1px;background:rgba(255,255,255,0.06);"></div>
-        </div>`;
-        items.forEach(e => {
-          html += renderCalRow(e, globalIndex === 0);
-          globalIndex++;
-        });
-      });
-
-      container.innerHTML = html;
+      renderCalAndWire(false);
 
     } catch (err) {
       console.error('Calendar load failed:', err);
