@@ -278,14 +278,17 @@
 
   document.addEventListener('DOMContentLoaded', loadMixes);
 
-  // ─── YouTube Config ──────────────────────────────────────────────────────
-  const YT_API_KEY     = 'AIzaSyD0fAm9iOXtdipNQDw0GSF63LW50-Zn7RY';
-  const YT_PLAYLIST_ID = 'PLilRFyj4i-3GrbHBLl9Ldeim7CTI5jDEc';
+  // ─── NLTDF Sets (served via Cloudflare Pages Function) ─────────────────
+  // The function at functions/api/sets.js handles the YouTube Data API
+  // calls server-side — no exposed API key in page source, results
+  // cached at Cloudflare's edge. See PROJECT_NOTES.md for background.
+  const SETS_ENDPOINT = '/api/sets';
   const MAX_SETS       = 4;
   // ────────────────────────────────────────────────────────────────────────
 
   function fmtYTDuration(iso) {
     // Parses ISO 8601 duration e.g. PT1H2M14S
+    if (!iso) return '—';
     const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
     if (!match) return '—';
     const h = parseInt(match[1] || 0);
@@ -296,70 +299,76 @@
     return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
   }
 
-  async function loadSets() {
-    const container = document.getElementById('sets-list');
-    if (!container) return;
+  function renderSetRow(set) {
+    const thumb = set.thumbnail
+      ? `<img src="${set.thumbnail}" alt="" style="width:38px;height:38px;object-fit:cover;flex-shrink:0;">`
+      : `<div style="width:38px;height:38px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;color:#444;font-size:14px;flex-shrink:0;">▶</div>`;
+    return `
+      <div class="mix-row">
+        <div class="mix-thumb">${thumb}</div>
+        <div class="mix-info" style="flex:1;min-width:0;">
+          <a href="${set.url}" target="_blank" rel="noopener" style="text-decoration:none;">
+            <div class="mix-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${set.title}</div>
+          </a>
+          <div class="mix-meta">${fmtYTDuration(set.durationISO)}</div>
+        </div>
+      </div>`;
+  }
 
-    // Skeleton
-    container.innerHTML = Array(MAX_SETS).fill(0).map(() => `
+  function setsSkeletonRow() {
+    return `
       <div class="mix-row" style="opacity:0.25;">
         <div class="mix-thumb">▶</div>
         <div class="mix-info">
           <div style="background:rgba(255,255,255,0.1);height:13px;width:200px;border-radius:2px;"></div>
           <div style="background:rgba(255,255,255,0.05);height:9px;width:60px;border-radius:2px;margin-top:6px;"></div>
         </div>
-      </div>`).join('');
+      </div>`;
+  }
+
+  function renderSetsList(sets, showAll) {
+    const visible = showAll ? sets : sets.slice(0, MAX_SETS);
+    const remaining = sets.length - visible.length;
+
+    let html = visible.map(renderSetRow).join('');
+
+    if (remaining > 0) {
+      html += `<button id="sets-more-btn" style="width:100%;margin-top:12px;padding:10px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:#999;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;">+ ${remaining} More</button>`;
+    }
+
+    return html;
+  }
+
+  let allSets = [];
+
+  function renderSetsAndWire(showAll) {
+    const container = document.getElementById('sets-list');
+    if (!container) return;
+    container.innerHTML = renderSetsList(allSets, showAll);
+    const moreBtn = document.getElementById('sets-more-btn');
+    if (moreBtn) moreBtn.addEventListener('click', () => renderSetsAndWire(true));
+  }
+
+  async function loadSets() {
+    const container = document.getElementById('sets-list');
+    if (!container) return;
+
+    container.innerHTML = Array(MAX_SETS).fill(0).map(setsSkeletonRow).join('');
 
     try {
-      // Step 1: get video IDs from playlist
-      const plRes = await fetch(
-        `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=${MAX_SETS}&playlistId=${YT_PLAYLIST_ID}&key=${YT_API_KEY}`
-      );
-      const plData = await plRes.json();
+      const res = await fetch(SETS_ENDPOINT);
+      if (!res.ok) throw new Error(`SETS_ERROR_${res.status}`);
+      const data = await res.json();
+      allSets = data.sets || [];
 
-      if (plData.error) {
-        console.error('YouTube playlist error:', plData.error);
-        container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Could not load sets.</div>`;
+      if (allSets.length === 0) {
+        container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">No sets found yet.</div>`;
         return;
       }
 
-      const items = plData.items || [];
-      const videoIds = items.map(i => i.snippet.resourceId.videoId).join(',');
-
-      // Step 2: get durations for each video
-      const vidRes = await fetch(
-        `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${videoIds}&key=${YT_API_KEY}`
-      );
-      const vidData = await vidRes.json();
-      const durations = {};
-      (vidData.items || []).forEach(v => {
-        durations[v.id] = v.contentDetails.duration;
-      });
-
-      container.innerHTML = items.map((item, i) => {
-        const title = item.snippet.title;
-        const videoId = item.snippet.resourceId.videoId;
-        const dur = durations[videoId] ? fmtYTDuration(durations[videoId]) : '—';
-        const url = `https://www.youtube.com/watch?v=${videoId}`;
-        const num = String(i + 1).padStart(2, '0');
-        const thumb = item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || null;
-        const thumbHtml = thumb
-          ? `<img src="${thumb}" alt="" style="width:38px;height:38px;object-fit:cover;flex-shrink:0;">`
-          : `<div style="width:38px;height:38px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;color:#444;font-size:14px;flex-shrink:0;">▶</div>`;
-        return `
-          <div class="mix-row">
-            <div class="mix-thumb">${thumbHtml}</div>
-            <div class="mix-info" style="flex:1;min-width:0;">
-              <a href="${url}" target="_blank" rel="noopener" style="text-decoration:none;">
-                <div class="mix-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${title}</div>
-              </a>
-              <div class="mix-meta">${dur}</div>
-            </div>
-          </div>`;
-      }).join('');
-
+      renderSetsAndWire(false);
     } catch (err) {
-      console.error('YouTube load failed:', err);
+      console.error('Sets load failed:', err);
       container.innerHTML = `<div style="font-size:11px;color:#555;padding:12px 0;">Could not load sets.</div>`;
     }
   }
