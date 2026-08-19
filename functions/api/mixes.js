@@ -26,6 +26,8 @@
 // etc.), redo the one-time Authorization Code flow as fiveseveneighty and
 // update this env var with the new refresh token.
 
+import { attachAppleMusicUrls } from './_apple-music-lookup.js';
+
 const SPOTIFY_OWNER_ID = 'fiveseveneighty';
 const CACHE_TTL_SECONDS = 600; // 10 minutes
 
@@ -87,8 +89,13 @@ export async function onRequestGet(context) {
       return new Date(b.oldestAddedAt) - new Date(a.oldestAddedAt);
     });
 
+    // Attach Apple Music URLs where a manual mapping exists (see
+    // _apple-music-lookup.js). Mixes without a mapping just don't get an
+    // appleMusicUrl field — the frontend skips the button in that case.
+    const withAppleMusic = await attachAppleMusicUrls(env, qualifying);
+
     const debug = new URL(request.url).searchParams.get('debug');
-    const payload = { mixes: qualifying, generatedAt: new Date().toISOString() };
+    const payload = { mixes: withAppleMusic, generatedAt: new Date().toISOString() };
     if (debug) {
       const subrequestCapErrors = fetchErrors.filter(e => /too many subrequests/i.test(e.error));
       const spotify403Errors = fetchErrors.filter(e => /PLAYLIST_ITEMS_ERROR_403/.test(e.error));
