@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NLTDF Admin — Apple Music Links</title>
+<link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #060408;
+    font-family: 'Josefin Sans', sans-serif;
+    color: #d0d0d0;
+    min-height: 100vh;
+    padding: 24px 16px;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 700; color: #fff; margin-bottom: 24px; letter-spacing: 0.02em; }
+
+  .card {
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.02);
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  label { display: block; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #888; margin-bottom: 6px; }
+  input[type="password"], input[type="text"], input[type="url"], select {
+    width: 100%;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #eee;
+    font-family: 'Josefin Sans', sans-serif;
+    font-size: 14px;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+  }
+  select option { background: #111; }
+
+  button {
+    font-family: 'Josefin Sans', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #e8789c;
+    border: 1px solid rgba(232,120,156,0.35);
+    background: rgba(232,120,156,0.08);
+    padding: 10px 18px;
+    cursor: pointer;
+  }
+  button:hover { background: rgba(232,120,156,0.15); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .status { font-size: 12px; margin-top: 10px; }
+  .status.ok { color: #6fcf97; }
+  .status.err { color: #eb5757; }
+
+  .mix-list { max-height: 340px; overflow-y: auto; }
+  .mix-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 13px;
+  }
+  .mix-row:last-child { border-bottom: none; }
+  .mix-name { color: #ddd; }
+  .mix-badge { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 8px; border: 1px solid; }
+  .mix-badge.yes { color: #6fcf97; border-color: rgba(111,207,151,0.4); }
+  .mix-badge.no { color: #666; border-color: rgba(255,255,255,0.15); }
+
+  #gate { text-align: center; padding: 60px 0; }
+  #main { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>NLTDF Admin — Apple Music Links</h1>
+
+  <div id="gate" class="card">
+    <label for="pw">Password</label>
+    <input type="password" id="pw" autocomplete="current-password">
+    <button id="unlock-btn">Unlock</button>
+    <div id="gate-status" class="status"></div>
+  </div>
+
+  <div id="main">
+    <div class="card">
+      <label for="mix-select">Select mix</label>
+      <select id="mix-select"></select>
+
+      <label for="apple-url">Apple Music URL</label>
+      <input type="url" id="apple-url" placeholder="https://music.apple.com/us/playlist/...">
+
+      <button id="save-btn">Save mapping</button>
+      <div id="save-status" class="status"></div>
+    </div>
+
+    <div class="card">
+      <label>Current mixes</label>
+      <div id="mix-list" class="mix-list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let password = '';
+  let mixes = [];
+
+  async function fetchMixes() {
+    const res = await fetch('/api/admin-apple-music?password=' + encodeURIComponent(password));
+    if (!res.ok) throw new Error('AUTH_FAILED');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    return data.mixes || [];
+  }
+
+  function renderMixSelect() {
+    const select = document.getElementById('mix-select');
+    select.innerHTML = mixes.map(m =>
+      `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}${m.hasMapping ? ' (mapped)' : ''}</option>`
+    ).join('');
+  }
+
+  function renderMixList() {
+    const container = document.getElementById('mix-list');
+    container.innerHTML = mixes.map(m => `
+      <div class="mix-row">
+        <span class="mix-name">${escapeHtml(m.name)}</span>
+        <span class="mix-badge ${m.hasMapping ? 'yes' : 'no'}">${m.hasMapping ? 'Mapped' : 'No link'}</span>
+      </div>`
+    ).join('');
+  }
+
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  document.getElementById('unlock-btn').addEventListener('click', async () => {
+    password = document.getElementById('pw').value;
+    const statusEl = document.getElementById('gate-status');
+    statusEl.textContent = 'Checking...';
+    statusEl.className = 'status';
+    try {
+      mixes = await fetchMixes();
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('main').style.display = 'block';
+      renderMixSelect();
+      renderMixList();
+    } catch (err) {
+      statusEl.textContent = 'Incorrect password or server error.';
+      statusEl.className = 'status err';
+    }
+  });
+
+  document.getElementById('save-btn').addEventListener('click', async () => {
+    const mixName = document.getElementById('mix-select').value;
+    const appleMusicUrl = document.getElementById('apple-url').value.trim();
+    const statusEl = document.getElementById('save-status');
+    const btn = document.getElementById('save-btn');
+
+    if (!mixName || !appleMusicUrl) {
+      statusEl.textContent = 'Select a mix and enter a URL.';
+      statusEl.className = 'status err';
+      return;
+    }
+
+    btn.disabled = true;
+    statusEl.textContent = 'Saving...';
+    statusEl.className = 'status';
+
+    try {
+      const res = await fetch('/api/admin-apple-music', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, mixName, appleMusicUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'SAVE_FAILED');
+
+      statusEl.textContent = `Saved: ${mixName} → Apple Music`;
+      statusEl.className = 'status ok';
+      document.getElementById('apple-url').value = '';
+
+      // Refresh the list so the badge/select update immediately.
+      mixes = await fetchMixes();
+      renderMixSelect();
+      renderMixList();
+    } catch (err) {
+      statusEl.textContent = 'Save failed: ' + err.message;
+      statusEl.className = 'status err';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Allow Enter key to submit the password field.
+  document.getElementById('pw').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('unlock-btn').click();
+  });
+</script>
+</body>
+</html>
