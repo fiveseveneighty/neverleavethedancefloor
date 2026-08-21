@@ -42,23 +42,37 @@ export async function onRequestGet(context) {
   }
 
   try {
-    // Reuse the existing /api/mixes endpoint rather than re-implementing
-    // the Spotify fetch here — this admin page only needs names, not the
-    // full mix detail.
+    // Get mix names from /api/mixes (names only — that part is fine to
+    // come from the cached backup, since names/track counts don't change
+    // often). But DON'T trust its appleMusicUrl field for mapping status:
+    // /api/mixes now reads from MIXES_BACKUP, which is only refreshed
+    // hourly by the standalone nltdf-mixes-refresher Worker. A mapping
+    // saved just now via this admin page wouldn't be reflected there
+    // until the next hourly run, which would make "Current Mixes" show
+    // stale "no link" status right after a successful save. Instead,
+    // check APPLE_MUSIC_LINKS directly per mix name here, live — cheap,
+    // and doesn't touch Spotify at all, so no quota concern.
     const origin = new URL(request.url).origin;
     const mixesRes = await fetch(`${origin}/api/mixes`);
     if (!mixesRes.ok) throw new Error(`MIXES_FETCH_ERROR_${mixesRes.status}`);
     const mixesData = await mixesRes.json();
     const mixes = mixesData.mixes || [];
 
-    // mixes.js already attaches appleMusicUrl when present, so we can
-    // read mapping status directly from it rather than querying KV again
-    // per mix.
-    const list = mixes.map(m => ({
-      name: m.name,
-      hasMapping: !!m.appleMusicUrl,
-      appleMusicUrl: m.appleMusicUrl || null,
-    }));
+    const list = await Promise.all(
+      mixes.map(async m => {
+        let appleMusicUrl = null;
+        try {
+          appleMusicUrl = await env.APPLE_MUSIC_LINKS.get(m.name);
+        } catch (err) {
+          // A single lookup failing shouldn't break the whole list.
+        }
+        return {
+          name: m.name,
+          hasMapping: !!appleMusicUrl,
+          appleMusicUrl,
+        };
+      })
+    );
 
     return jsonResponse({ mixes: list });
   } catch (err) {
