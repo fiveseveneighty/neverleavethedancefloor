@@ -38,6 +38,16 @@ const CACHE_TTL_SECONDS = 1800; // 30 minutes — increased from 10 min after
 // quota safety and not delaying mix announcements too long. See
 // PROJECT_NOTES.md.
 
+// Durable backup key. Unlike the edge cache (which expires and then
+// simply has nothing), this KV entry persists indefinitely and is
+// overwritten on every successful fetch. When Spotify itself is
+// unavailable (rate limited / quota exceeded), we serve this backup
+// instead of an error — visitors see a possibly-stale-but-real mixes
+// list rather than "Couldn't load mixes." Requires the same
+// APPLE_MUSIC_LINKS-style KV binding pattern; see MIXES_BACKUP binding
+// setup in PROJECT_NOTES.md.
+const BACKUP_KV_KEY = 'mixes-backup';
+
 export async function onRequestGet(context) {
   const { env, request } = context;
 
@@ -124,9 +134,41 @@ export async function onRequestGet(context) {
     }
 
     const response = jsonResponse(payload, 200, debug ? null : CACHE_TTL_SECONDS);
-    if (!debug) context.waitUntil(cache.put(cacheKey, response.clone()));
+    if (!debug) {
+      context.waitUntil(cache.put(cacheKey, response.clone()));
+      // Update the durable backup too, so a future Spotify outage has
+      // something real to fall back to. Best-effort — a KV write failure
+      // here shouldn't break an otherwise-successful response.
+      if (env.MIXES_BACKUP) {
+        context.waitUntil(
+          env.MIXES_BACKUP.put(BACKUP_KV_KEY, JSON.stringify({ mixes: withAppleMusic, savedAt: new Date().toISOString() })).catch(() => {})
+        );
+      }
+    }
     return response;
   } catch (err) {
+    // Spotify itself is unavailable (rate limited, quota exceeded, or any
+    // other failure). Try to serve the last known-good backup instead of
+    // a bare error, so visitors see real (if possibly stale) data.
+    if (env.MIXES_BACKUP) {
+      try {
+        const backupRaw = await env.MIXES_BACKUP.get(BACKUP_KV_KEY);
+        if (backupRaw) {
+          const backup = JSON.parse(backupRaw);
+          return jsonResponse(
+            {
+              mixes: backup.mixes,
+              generatedAt: backup.savedAt,
+              stale: true,
+              staleReason: String(err && err.message || err),
+            },
+            200
+          );
+        }
+      } catch (backupErr) {
+        // Fall through to the original error response below.
+      }
+    }
     return jsonResponse({ error: 'FETCH_FAILED', message: String(err && err.message || err) }, 502);
   }
 }
