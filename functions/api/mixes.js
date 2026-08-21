@@ -29,7 +29,14 @@
 import { attachAppleMusicUrls } from './_apple-music-lookup.js';
 
 const SPOTIFY_OWNER_ID = 'fiveseveneighty';
-const CACHE_TTL_SECONDS = 600; // 10 minutes
+const CACHE_TTL_SECONDS = 1800; // 30 minutes — increased from 10 min after
+// repeated Spotify Development Mode QUOTA_EXCEEDED blocks. Development
+// Mode has a real, recurring quota ceiling (not just a one-time testing
+// artifact); a longer cache means fewer real Spotify API calls under
+// normal visitor traffic, at the cost of new mixes taking up to 30 min
+// to appear after being posted. 30 min was chosen as a balance between
+// quota safety and not delaying mix announcements too long. See
+// PROJECT_NOTES.md.
 
 export async function onRequestGet(context) {
   const { env, request } = context;
