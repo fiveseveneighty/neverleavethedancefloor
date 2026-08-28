@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NLTDF Admin — Event Intake</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/admin-favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/admin-favicon-16x16.png">
+<link rel="shortcut icon" href="/admin-favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="/admin-apple-touch-icon.png">
+<link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #060408;
+    font-family: 'Josefin Sans', sans-serif;
+    color: #ece7ef;
+    min-height: 100vh;
+    padding: 24px 16px 100px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+
+  #gate { text-align: center; padding: 60px 0; }
+  #gate .card { max-width: 320px; margin: 0 auto; }
+  #main { display: none; }
+
+  .card {
+    border: 1px solid rgba(255,255,255,0.09);
+    background: rgba(255,255,255,0.02);
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  label { display: block; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #8d8794; margin-bottom: 6px; }
+  input[type="password"] {
+    width: 100%;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #eee;
+    font-family: 'Josefin Sans', sans-serif;
+    font-size: 14px;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+  }
+  button {
+    font-family: 'Josefin Sans', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    border: 1px solid;
+    background: transparent;
+    cursor: pointer;
+  }
+  #unlock-btn { color: #e8789c; border-color: rgba(232,120,156,0.35); background: rgba(232,120,156,0.08); padding: 10px 18px; width: 100%; }
+  #unlock-btn:hover { background: rgba(232,120,156,0.15); }
+
+  .status { font-size: 12px; margin-top: 10px; }
+  .status.err { color: #eb5757; }
+
+  h1 { font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+  .lede { font-size: 13px; color: #8d8794; line-height: 1.55; max-width: 58ch; margin-bottom: 18px; }
+  .counts { display: flex; gap: 16px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8d8794; margin-bottom: 24px; }
+  .counts b { color: #ece7ef; font-weight: 600; }
+
+  .section-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #625d68; margin: 28px 0 12px; display: flex; align-items: center; gap: 10px;
+  }
+  .section-label::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.05); }
+
+  .list { display: flex; flex-direction: column; gap: 10px; }
+  .ev-card { background: #100c15; border: 1px solid rgba(255,255,255,0.09); padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+  .ev-card.is-approved { border-color: rgba(111,207,151,0.35); }
+  .ev-card.is-created { border-color: rgba(111,207,151,0.35); opacity: 0.75; }
+  .ev-card.is-skipped { opacity: 0.5; }
+
+  .ev-title { font-size: 15px; font-weight: 600; color: #fff; }
+  .ev-meta { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8d8794; display: flex; flex-wrap: wrap; gap: 4px 8px; }
+  .ev-meta .date { color: #ece7ef; }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 7px; border: 1px solid; }
+  .tag.genre { color: #e8789c; border-color: rgba(232,120,156,0.35); background: rgba(232,120,156,0.1); }
+  .tag.warn { color: #e0a458; border-color: rgba(224,164,88,0.32); background: rgba(224,164,88,0.1); }
+  .tag.travel { color: #8ab4ff; border-color: rgba(138,180,255,0.32); background: rgba(138,180,255,0.1); }
+  .tag.good { color: #6fcf97; border-color: rgba(111,207,151,0.35); background: rgba(111,207,151,0.1); }
+
+  .note { font-size: 12px; color: #8d8794; line-height: 1.5; }
+  .ev-bottom { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 2px; }
+  .ticket-link { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8d8794; text-decoration: none; border-bottom: 1px solid rgba(255,255,255,0.09); }
+  .ticket-link:hover { color: #e8789c; }
+
+  .actions { display: flex; gap: 8px; align-items: center; }
+  .btn-approve { color: #6fcf97; border-color: rgba(111,207,151,0.35); }
+  .btn-approve:hover { background: rgba(111,207,151,0.1); }
+  .btn-skip { color: #8d8794; border-color: rgba(255,255,255,0.15); }
+  .btn-skip:hover { background: rgba(255,255,255,0.06); color: #ece7ef; }
+  .btn-undo { color: #8d8794; border-color: rgba(255,255,255,0.15); }
+  .status-line { font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+  .status-line.approved { color: #6fcf97; }
+  .status-line.created { color: #6fcf97; }
+  .status-line.skipped { color: #625d68; }
+
+  .empty { font-size: 13px; color: #625d68; padding: 16px 0; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #100c15; border: 1px solid rgba(232,120,156,0.35); color: #ece7ef; font-size: 12px; padding: 10px 16px; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="gate" class="card">
+    <label for="pw">Password</label>
+    <input type="password" id="pw" autocomplete="current-password">
+    <button id="unlock-btn">Unlock</button>
+    <div id="gate-status" class="status"></div>
+  </div>
+
+  <div id="main">
+    <h1>New shows worth a look</h1>
+    <p class="lede">Approve what belongs on the NLTDF calendar. A Cloudflare Worker checks every 5 minutes and creates approved shows on the group calendar automatically.</p>
+    <div class="counts" id="counts"></div>
+    <div id="pending-section"></div>
+    <div id="approved-section"></div>
+    <div id="created-section"></div>
+    <div id="skipped-section"></div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+
+<script>
+  let password = '';
+  let candidates = [];
+
+  const FLAG_LABELS = {
+    conflict: { label: 'Date conflict', cls: 'warn' },
+    owned: { label: 'Already have a ticket', cls: 'good' },
+    needsDate: { label: 'Needs date check', cls: 'warn' },
+    travel: { label: 'Travel', cls: 'travel' },
+    multiDay: { label: 'Multi-day', cls: 'warn' },
+  };
+
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s == null ? '' : s;
+    return div.innerHTML;
+  }
+
+  function showToast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 2200);
+  }
+
+  async function fetchCandidates() {
+    const res = await fetch('/api/admin-events?password=' + encodeURIComponent(password));
+    if (!res.ok) throw new Error('AUTH_FAILED');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    return data.candidates || [];
+  }
+
+  async function postAction(id, action) {
+    const res = await fetch('/api/admin-events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, id, action }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'ACTION_FAILED');
+    return data.candidates;
+  }
+
+  function cardHtml(item) {
+    const statusClass = item.status === 'approved' ? 'is-approved' : item.status === 'created' ? 'is-created' : item.status === 'skipped' ? 'is-skipped' : '';
+    let tags = '<span class="tag genre">' + escapeHtml(item.genre) + '</span>';
+    (item.flags || []).forEach(f => {
+      const meta = FLAG_LABELS[f];
+      if (meta) tags += '<span class="tag ' + meta.cls + '">' + meta.label + '</span>';
+    });
+    const dateHtml = item.date ? '<span class="date">' + escapeHtml(item.date) + '</span>' : '<span class="date" style="color:#e0a458;">date TBD</span>';
+    const noteHtml = item.note ? '<div class="note">' + escapeHtml(item.note) + '</div>' : '';
+
+    let actionsHtml;
+    if (item.status === 'pending') {
+      actionsHtml = '<div class="actions">' +
+        '<button class="btn-skip" data-id="' + item.id + '" data-action="skip">Skip</button>' +
+        '<button class="btn-approve" data-id="' + item.id + '" data-action="approve">Add to calendar</button>' +
+        '</div>';
+    } else if (item.status === 'created') {
+      actionsHtml = '<span class="status-line created">On the calendar ✓' + (item.createdAt ? ' · ' + escapeHtml(item.createdAt.slice(0, 10)) : '') + '</span>';
+    } else {
+      const label = item.status === 'approved' ? 'Approved — waiting on the Worker' : 'Skipped';
+      const cls = item.status === 'approved' ? 'approved' : 'skipped';
+      actionsHtml = '<div class="actions">' +
+        '<span class="status-line ' + cls + '">' + label + '</span>' +
+        '<button class="btn-undo" data-id="' + item.id + '" data-action="undo">Undo</button>' +
+        '</div>';
+    }
+
+    return '<div class="ev-card ' + statusClass + '" data-id="' + item.id + '">' +
+      '<div class="ev-title">' + escapeHtml(item.title) + '</div>' +
+      '<div class="ev-meta">' + dateHtml + '<span>·</span><span>' + escapeHtml(item.venue) + ', ' + escapeHtml(item.city) + '</span></div>' +
+      '<div class="tags">' + tags + '</div>' +
+      noteHtml +
+      '<div class="ev-bottom">' +
+      '<a class="ticket-link" href="' + escapeHtml(item.ticketUrl) + '" target="_blank" rel="noopener noreferrer">Tickets ↗ · via ' + escapeHtml(item.source) + '</a>' +
+      actionsHtml +
+      '</div></div>';
+  }
+
+  function render() {
+    const pending = candidates.filter(c => c.status === 'pending');
+    const approved = candidates.filter(c => c.status === 'approved');
+    const created = candidates.filter(c => c.status === 'created');
+    const skipped = candidates.filter(c => c.status === 'skipped');
+
+    document.getElementById('counts').innerHTML =
+      '<span><b>' + pending.length + '</b> pending</span>' +
+      '<span><b>' + approved.length + '</b> approved</span>' +
+      '<span><b>' + created.length + '</b> on calendar</span>' +
+      '<span><b>' + skipped.length + '</b> skipped</span>';
+
+    document.getElementById('pending-section').innerHTML =
+      '<div class="list">' + (pending.length ? pending.map(cardHtml).join('') : '<div class="empty">Nothing pending — nice and caught up.</div>') + '</div>';
+
+    document.getElementById('approved-section').innerHTML = approved.length
+      ? '<div class="section-label">Waiting on the Worker</div><div class="list">' + approved.map(cardHtml).join('') + '</div>' : '';
+
+    document.getElementById('created-section').innerHTML = created.length
+      ? '<div class="section-label">On the calendar</div><div class="list">' + created.map(cardHtml).join('') + '</div>' : '';
+
+    document.getElementById('skipped-section').innerHTML = skipped.length
+      ? '<div class="section-label">Skipped</div><div class="list">' + skipped.map(cardHtml).join('') + '</div>' : '';
+
+    document.querySelectorAll('button[data-action]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-id');
+        const action = btn.getAttribute('data-action');
+        btn.disabled = true;
+        try {
+          candidates = await postAction(id, action);
+          render();
+          showToast(action === 'approve' ? 'Queued — the Worker checks every 5 min' : action === 'skip' ? 'Skipped' : 'Reverted to pending');
+        } catch (err) {
+          showToast('Failed: ' + err.message);
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  document.getElementById('unlock-btn').addEventListener('click', async () => {
+    password = document.getElementById('pw').value;
+    const statusEl = document.getElementById('gate-status');
+    statusEl.textContent = 'Checking...';
+    statusEl.className = 'status';
+    try {
+      candidates = await fetchCandidates();
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('main').style.display = 'block';
+      render();
+    } catch (err) {
+      statusEl.textContent = 'Incorrect password or server error.';
+      statusEl.className = 'status err';
+    }
+  });
+
+  document.getElementById('pw').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('unlock-btn').click();
+  });
+</script>
+</body>
+</html>
