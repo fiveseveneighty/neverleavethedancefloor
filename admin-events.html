@@ -88,6 +88,19 @@
   .tag.good { color: #6fcf97; border-color: rgba(111,207,151,0.35); background: rgba(111,207,151,0.1); }
 
   .note { font-size: 12px; color: #e8789c; line-height: 1.5; padding-left: 10px; border-left: 2px solid rgba(232,120,156,0.4); }
+
+  .date-toggle { align-self: flex-start; background: none; border: none; padding: 0; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.04em; color: #8ab4ff; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+  .date-toggle:hover { color: #ece7ef; }
+  .date-form { display: none; gap: 8px; align-items: flex-end; flex-wrap: wrap; background: rgba(138,180,255,0.06); border: 1px solid rgba(138,180,255,0.25); padding: 12px; }
+  .date-form.open { display: flex; }
+  .date-field { display: flex; flex-direction: column; gap: 4px; }
+  .date-field label { margin-bottom: 0; font-size: 9px; }
+  .date-field input, .date-field select {
+    background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.15); color: #eee;
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 6px 8px;
+  }
+  .btn-save-date { color: #6fcf97; border-color: rgba(111,207,151,0.35); }
+  .btn-cancel-date { color: #8d8794; border-color: rgba(255,255,255,0.15); }
   .ev-bottom { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 2px; }
   .ticket-link { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8d8794; text-decoration: none; border-bottom: 1px solid rgba(255,255,255,0.09); }
   .ticket-link:hover { color: #e8789c; }
@@ -162,15 +175,60 @@
     return data.candidates || [];
   }
 
-  async function postAction(id, action) {
+  async function postAction(id, action, extra) {
     const res = await fetch('/api/admin-events', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, id, action }),
+      body: JSON.stringify(Object.assign({ password, id, action }, extra || {})),
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || 'ACTION_FAILED');
     return data.candidates;
+  }
+
+  function tzOffsetHours(date, timeZone) {
+    const dtf = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'shortOffset' });
+    const parts = dtf.formatToParts(date);
+    const tzPart = parts.find(p => p.type === 'timeZoneName');
+    const m = tzPart && tzPart.value.match(/GMT([+-]\d+)/);
+    return m ? parseInt(m[1], 10) : 0;
+  }
+
+  function buildIsoFromLocal(dateStr, timeStr, timeZone) {
+    const naive = new Date(dateStr + 'T' + timeStr + ':00Z');
+    const offset = tzOffsetHours(naive, timeZone);
+    const sign = offset <= 0 ? '-' : '+';
+    const offsetStr = sign + String(Math.abs(offset)).padStart(2, '0') + ':00';
+    return dateStr + 'T' + timeStr + ':00' + offsetStr;
+  }
+
+  function guessTimeZone(city) {
+    return /\bCA\b/.test(city || '') ? 'America/Los_Angeles' : 'America/Denver';
+  }
+
+  function isoToLocalParts(iso, timeZone) {
+    const d = new Date(iso);
+    const dtf = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+    const parts = dtf.formatToParts(d);
+    const get = t => parts.find(p => p.type === t).value;
+    return { date: get('year') + '-' + get('month') + '-' + get('day'), time: get('hour') + ':' + get('minute') };
+  }
+
+  function dateEditFormHtml(item) {
+    const tz = guessTimeZone(item.city);
+    const prefill = item.startDateTime ? isoToLocalParts(item.startDateTime, tz) : { date: '', time: '21:00' };
+    const openClass = item.startDateTime ? '' : ' open';
+    return '<button class="date-toggle" data-toggle-id="' + item.id + '">' + (item.startDateTime ? 'Edit date/time' : 'Set date/time') + '</button>' +
+      '<div class="date-form' + openClass + '" id="dateform-' + item.id + '">' +
+      '<div class="date-field"><label>Date</label><input type="date" id="date-' + item.id + '" value="' + prefill.date + '"></div>' +
+      '<div class="date-field"><label>Time</label><input type="time" id="time-' + item.id + '" value="' + prefill.time + '"></div>' +
+      '<div class="date-field"><label>Timezone</label><select id="tz-' + item.id + '">' +
+      '<option value="America/Denver"' + (tz === 'America/Denver' ? ' selected' : '') + '>Denver (Mountain)</option>' +
+      '<option value="America/Los_Angeles"' + (tz === 'America/Los_Angeles' ? ' selected' : '') + '>San Francisco (Pacific)</option>' +
+      '</select></div>' +
+      '<button class="btn-save-date" data-save-id="' + item.id + '">Save</button>' +
+      '<button class="btn-cancel-date" data-cancel-id="' + item.id + '">Cancel</button>' +
+      '</div>';
   }
 
   function cardHtml(item) {
@@ -182,6 +240,7 @@
     });
     const dateHtml = item.date ? '<span class="date">' + escapeHtml(item.date) + '</span>' : '<span class="date" style="color:#e0a458;">date TBD</span>';
     const noteHtml = item.note ? '<div class="note">' + escapeHtml(item.note) + '</div>' : '';
+    const dateEditHtml = (item.status === 'pending' || item.status === 'approved') ? dateEditFormHtml(item) : '';
 
     let actionsHtml;
     if (item.status === 'pending') {
@@ -205,6 +264,7 @@
       '<div class="ev-meta">' + dateHtml + '<span>·</span><span>' + escapeHtml(item.venue) + ', ' + escapeHtml(item.city) + '</span></div>' +
       '<div class="tags">' + tags + '</div>' +
       noteHtml +
+      dateEditHtml +
       '<div class="ev-bottom">' +
       '<a class="ticket-link" href="' + escapeHtml(item.ticketUrl) + '" target="_blank" rel="noopener noreferrer">Tickets ↗ · via ' + escapeHtml(item.source) + '</a>' +
       actionsHtml +
@@ -244,6 +304,43 @@
           candidates = await postAction(id, action);
           render();
           showToast(action === 'approve' ? 'Queued — the Worker checks every 5 min' : action === 'skip' ? 'Skipped' : 'Reverted to pending');
+        } catch (err) {
+          showToast('Failed: ' + err.message);
+          btn.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll('button[data-toggle-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const form = document.getElementById('dateform-' + btn.getAttribute('data-toggle-id'));
+        if (form) form.classList.toggle('open');
+      });
+    });
+
+    document.querySelectorAll('button[data-cancel-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const form = document.getElementById('dateform-' + btn.getAttribute('data-cancel-id'));
+        if (form) form.classList.remove('open');
+      });
+    });
+
+    document.querySelectorAll('button[data-save-id]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-save-id');
+        const dateVal = document.getElementById('date-' + id).value;
+        const timeVal = document.getElementById('time-' + id).value;
+        const tzVal = document.getElementById('tz-' + id).value;
+        if (!dateVal || !timeVal) {
+          showToast('Pick both a date and a time');
+          return;
+        }
+        const startDateTime = buildIsoFromLocal(dateVal, timeVal, tzVal);
+        btn.disabled = true;
+        try {
+          candidates = await postAction(id, 'setDate', { startDateTime, timeZone: tzVal });
+          render();
+          showToast('Date saved');
         } catch (err) {
           showToast('Failed: ' + err.message);
           btn.disabled = false;

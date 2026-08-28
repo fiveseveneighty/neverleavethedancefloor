@@ -46,14 +46,14 @@ export async function onRequestPost(context) {
     return json({ error: 'INVALID_JSON' }, 400);
   }
 
-  const { password, id, action } = body || {};
+  const { password, id, action, startDateTime, endDateTime, timeZone } = body || {};
   if (!env.ADMIN_PASSWORD || password !== env.ADMIN_PASSWORD) {
     return json({ error: 'UNAUTHORIZED' }, 401);
   }
   if (!env.MIXES_BACKUP) {
     return json({ error: 'MISSING_KV_BINDING' }, 500);
   }
-  if (!id || !['approve', 'skip', 'undo'].includes(action)) {
+  if (!id || !['approve', 'skip', 'undo', 'setDate'].includes(action)) {
     return json({ error: 'BAD_REQUEST' }, 400);
   }
 
@@ -71,11 +71,47 @@ export async function onRequestPost(context) {
     return json({ error: 'ALREADY_CREATED', candidates }, 409);
   }
 
+  if (action === 'setDate') {
+    // Manually setting/correcting the date+time on a candidate — does NOT
+    // change its status (stays pending/approved), just fills in or fixes
+    // the field the Worker actually needs (startDateTime) plus a matching
+    // human-readable 'date' string for display, and clears the
+    // 'needsDate' flag if the date was previously missing.
+    if (!startDateTime || Number.isNaN(Date.parse(startDateTime))) {
+      return json({ error: 'INVALID_START_DATETIME' }, 400);
+    }
+    if (endDateTime && Number.isNaN(Date.parse(endDateTime))) {
+      return json({ error: 'INVALID_END_DATETIME' }, 400);
+    }
+    const displayDate = formatDisplayDate(startDateTime, timeZone);
+    const nextFlags = (candidates[idx].flags || []).filter(f => f !== 'needsDate');
+    candidates[idx] = {
+      ...candidates[idx],
+      startDateTime,
+      ...(endDateTime ? { endDateTime } : {}),
+      date: displayDate,
+      flags: nextFlags,
+    };
+    await env.MIXES_BACKUP.put(EVENT_CANDIDATES_KV_KEY, JSON.stringify(candidates));
+    return json({ candidates });
+  }
+
   const nextStatus = action === 'approve' ? 'approved' : action === 'skip' ? 'skipped' : 'pending';
   candidates[idx] = { ...candidates[idx], status: nextStatus };
 
   await env.MIXES_BACKUP.put(EVENT_CANDIDATES_KV_KEY, JSON.stringify(candidates));
   return json({ candidates });
+}
+
+function formatDisplayDate(iso, timeZone) {
+  try {
+    const d = new Date(iso);
+    const opts = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' };
+    if (timeZone) opts.timeZone = timeZone;
+    return d.toLocaleDateString('en-US', opts);
+  } catch (err) {
+    return iso;
+  }
 }
 
 async function getCandidates(env) {
