@@ -16,9 +16,10 @@
 //
 // This file only ever touches 'pending' <-> 'approved' <-> 'skipped',
 // plus creating brand-new 'pending' candidates (see the 'create' action
-// below). 'created' is set exclusively by the Worker's cron, once the
-// calendar event actually exists — never set it here, so the two writers
-// can't race into double-creating the same event.
+// below) and deleting a candidate outright (see 'delete' below). 'created'
+// is set exclusively by the Worker's cron, once the calendar event
+// actually exists — never set it here, so the two writers can't race into
+// double-creating the same event.
 //
 // POST actions:
 //   approve / skip / undo   — flip an existing candidate's status.
@@ -38,6 +39,16 @@
 //     already matches on title+venue+date — mirrors the dedupe rule the
 //     Claude scan is instructed to apply itself, as a second line of
 //     defense against re-adding something already in the queue.
+//   delete                  — permanently remove a candidate (a bad scrape,
+//                              a duplicate, test data). Irreversible, so it
+//                              requires an explicit confirmDelete: true on
+//                              top of the password, and — like every other
+//                              action here — is blocked once a candidate is
+//                              'created' (see the guard below); removing a
+//                              record of a real calendar event needs a
+//                              human deciding that on purpose, not a stray
+//                              API call.
+//     Body: { password, id, action: 'delete', confirmDelete: true }
 
 const EVENT_CANDIDATES_KV_KEY = 'event-candidates';
 
@@ -68,7 +79,7 @@ export async function onRequestPost(context) {
     return json({ error: 'INVALID_JSON' }, 400);
   }
 
-  const { password, id, action, startDateTime, endDateTime, timeZone, note, candidate } = body || {};
+  const { password, id, action, startDateTime, endDateTime, timeZone, note, candidate, confirmDelete } = body || {};
 
   if (!env.ADMIN_PASSWORD || password !== env.ADMIN_PASSWORD) {
     return json({ error: 'UNAUTHORIZED' }, 401);
@@ -78,7 +89,7 @@ export async function onRequestPost(context) {
     return json({ error: 'MISSING_KV_BINDING' }, 500);
   }
 
-  if (!['approve', 'skip', 'undo', 'setDate', 'create'].includes(action)) {
+  if (!['approve', 'skip', 'undo', 'setDate', 'create', 'delete'].includes(action)) {
     return json({ error: 'BAD_REQUEST' }, 400);
   }
 
@@ -103,6 +114,16 @@ export async function onRequestPost(context) {
   // fresh approval from a re-approval of an already-created event.
   if (candidates[idx].status === 'created') {
     return json({ error: 'ALREADY_CREATED', candidates }, 409);
+  }
+
+  if (action === 'delete') {
+    if (confirmDelete !== true) {
+      return json({ error: 'CONFIRMATION_REQUIRED' }, 400);
+    }
+
+    const [removed] = candidates.splice(idx, 1);
+    await env.MIXES_BACKUP.put(EVENT_CANDIDATES_KV_KEY, JSON.stringify(candidates));
+    return json({ candidates, deleted: removed });
   }
 
   if (action === 'setDate') {
