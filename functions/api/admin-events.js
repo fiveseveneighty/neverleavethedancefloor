@@ -14,10 +14,30 @@
 //   { id, title, venue, city, date, genre, source, ticketUrl, flags,
 //     note, status: 'pending'|'approved'|'skipped'|'created', createdAt }
 //
-// This file only ever touches 'pending' <-> 'approved' <-> 'skipped'.
-// 'created' is set exclusively by the Worker's cron, once the calendar
-// event actually exists — never set it here, so the two writers can't
-// race into double-creating the same event.
+// This file only ever touches 'pending' <-> 'approved' <-> 'skipped',
+// plus creating brand-new 'pending' candidates (see the 'create' action
+// below). 'created' is set exclusively by the Worker's cron, once the
+// calendar event actually exists — never set it here, so the two writers
+// can't race into double-creating the same event.
+//
+// POST actions:
+//   approve / skip / undo   — flip an existing candidate's status.
+//     Body: { password, id, action }
+//   setDate                 — set/correct startDateTime (+ optional
+//                              endDateTime, timeZone, note) on an existing
+//                              candidate without changing its status.
+//     Body: { password, id, action: 'setDate', startDateTime,
+//              endDateTime?, timeZone?, note? }
+//   create                  — add a brand-new 'pending' candidate (used by
+//                              the daily Claude Gmail-scan job to feed the
+//                              queue, same shape as the seeded candidates).
+//     Body: { password, action: 'create', candidate: { title, venue,
+//              city?, date?, genre?, source?, ticketUrl?, flags?, note?,
+//              startDateTime?, endDateTime?, id? } }
+//     Rejects with 409 DUPLICATE if an existing candidate (any status)
+//     already matches on title+venue+date — mirrors the dedupe rule the
+//     Claude scan is instructed to apply itself, as a second line of
+//     defense against re-adding something already in the queue.
 
 const EVENT_CANDIDATES_KV_KEY = 'event-candidates';
 
@@ -29,6 +49,7 @@ export async function onRequestGet(context) {
   if (!env.ADMIN_PASSWORD || password !== env.ADMIN_PASSWORD) {
     return json({ error: 'UNAUTHORIZED' }, 401);
   }
+
   if (!env.MIXES_BACKUP) {
     return json({ error: 'MISSING_KV_BINDING' }, 500);
   }
@@ -39,6 +60,7 @@ export async function onRequestGet(context) {
 
 export async function onRequestPost(context) {
   const { request, env } = context;
+
   let body;
   try {
     body = await request.json();
@@ -46,19 +68,31 @@ export async function onRequestPost(context) {
     return json({ error: 'INVALID_JSON' }, 400);
   }
 
-  const { password, id, action, startDateTime, endDateTime, timeZone } = body || {};
+  const { password, id, action, startDateTime, endDateTime, timeZone, note, candidate } = body || {};
+
   if (!env.ADMIN_PASSWORD || password !== env.ADMIN_PASSWORD) {
     return json({ error: 'UNAUTHORIZED' }, 401);
   }
+
   if (!env.MIXES_BACKUP) {
     return json({ error: 'MISSING_KV_BINDING' }, 500);
   }
-  if (!id || !['approve', 'skip', 'undo', 'setDate'].includes(action)) {
+
+  if (!['approve', 'skip', 'undo', 'setDate', 'create'].includes(action)) {
+    return json({ error: 'BAD_REQUEST' }, 400);
+  }
+
+  if (action === 'create') {
+    return handleCreate(env, candidate);
+  }
+
+  if (!id) {
     return json({ error: 'BAD_REQUEST' }, 400);
   }
 
   const candidates = await getCandidates(env);
   const idx = candidates.findIndex(c => c.id === id);
+
   if (idx === -1) {
     return json({ error: 'NOT_FOUND' }, 404);
   }
@@ -72,26 +106,25 @@ export async function onRequestPost(context) {
   }
 
   if (action === 'setDate') {
-    // Manually setting/correcting the date+time on a candidate — does NOT
-    // change its status (stays pending/approved), just fills in or fixes
-    // the field the Worker actually needs (startDateTime) plus a matching
-    // human-readable 'date' string for display, and clears the
-    // 'needsDate' flag if the date was previously missing.
     if (!startDateTime || Number.isNaN(Date.parse(startDateTime))) {
       return json({ error: 'INVALID_START_DATETIME' }, 400);
     }
     if (endDateTime && Number.isNaN(Date.parse(endDateTime))) {
       return json({ error: 'INVALID_END_DATETIME' }, 400);
     }
+
     const displayDate = formatDisplayDate(startDateTime, timeZone);
     const nextFlags = (candidates[idx].flags || []).filter(f => f !== 'needsDate');
+
     candidates[idx] = {
       ...candidates[idx],
       startDateTime,
       ...(endDateTime ? { endDateTime } : {}),
       date: displayDate,
       flags: nextFlags,
+      ...(typeof note === 'string' ? { note } : {}),
     };
+
     await env.MIXES_BACKUP.put(EVENT_CANDIDATES_KV_KEY, JSON.stringify(candidates));
     return json({ candidates });
   }
@@ -101,6 +134,64 @@ export async function onRequestPost(context) {
 
   await env.MIXES_BACKUP.put(EVENT_CANDIDATES_KV_KEY, JSON.stringify(candidates));
   return json({ candidates });
+}
+
+async function handleCreate(env, candidate) {
+  if (!candidate || typeof candidate !== 'object') {
+    return json({ error: 'MISSING_CANDIDATE' }, 400);
+  }
+
+  const title = (candidate.title || '').trim();
+  const venue = (candidate.venue || '').trim();
+
+  if (!title || !venue) {
+    return json({ error: 'MISSING_REQUIRED_FIELDS', required: ['title', 'venue'] }, 400);
+  }
+
+  if (candidate.startDateTime && Number.isNaN(Date.parse(candidate.startDateTime))) {
+    return json({ error: 'INVALID_START_DATETIME' }, 400);
+  }
+  if (candidate.endDateTime && Number.isNaN(Date.parse(candidate.endDateTime))) {
+    return json({ error: 'INVALID_END_DATETIME' }, 400);
+  }
+
+  const candidates = await getCandidates(env);
+
+  const norm = s => (s || '').trim().toLowerCase();
+  const dupe = candidates.find(c =>
+    norm(c.title) === norm(title) &&
+    norm(c.venue) === norm(venue) &&
+    norm(c.date) === norm(candidate.date)
+  );
+  if (dupe) {
+    return json({ error: 'DUPLICATE', existing: dupe }, 409);
+  }
+
+  const id = (candidate.id && String(candidate.id).trim()) || `evt_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  if (candidates.some(c => c.id === id)) {
+    return json({ error: 'ID_ALREADY_EXISTS', id }, 409);
+  }
+
+  const newCandidate = {
+    id,
+    title,
+    venue,
+    city: candidate.city || '',
+    date: candidate.date ?? null,
+    genre: candidate.genre || '',
+    source: candidate.source || '',
+    ticketUrl: candidate.ticketUrl || '',
+    flags: Array.isArray(candidate.flags) ? candidate.flags : [],
+    note: candidate.note || '',
+    status: 'pending',
+    ...(candidate.startDateTime ? { startDateTime: candidate.startDateTime } : {}),
+    ...(candidate.endDateTime ? { endDateTime: candidate.endDateTime } : {}),
+  };
+
+  candidates.push(newCandidate);
+  await env.MIXES_BACKUP.put(EVENT_CANDIDATES_KV_KEY, JSON.stringify(candidates));
+
+  return json({ candidates, created: newCandidate });
 }
 
 function formatDisplayDate(iso, timeZone) {
