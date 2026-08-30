@@ -245,7 +245,7 @@
     let actionsHtml;
     if (item.status === 'pending') {
       actionsHtml = '<div class="actions">' +
-        '<button class="btn-skip" data-id="' + item.id + '" data-action="skip">Skip</button>' +
+        '<button class="btn-skip" data-id="' + item.id + '" data-action="delete">Delete</button>' +
         '<button class="btn-approve" data-id="' + item.id + '" data-action="approve">Add to calendar</button>' +
         '</div>';
     } else if (item.status === 'created') {
@@ -299,11 +299,13 @@
       btn.addEventListener('click', async () => {
         const id = btn.getAttribute('data-id');
         const action = btn.getAttribute('data-action');
+        if (action === 'delete' && !confirm('Delete this candidate for good? This can\'t be undone.')) return;
         btn.disabled = true;
         try {
-          candidates = await postAction(id, action);
+          const extra = action === 'delete' ? { confirmDelete: true } : undefined;
+          candidates = await postAction(id, action, extra);
           render();
-          showToast(action === 'approve' ? 'Queued — the Worker checks every 5 min' : action === 'skip' ? 'Skipped' : 'Reverted to pending');
+          showToast(action === 'approve' ? 'Queued — the Worker checks every 5 min' : action === 'delete' ? 'Deleted' : action === 'skip' ? 'Skipped' : 'Reverted to pending');
         } catch (err) {
           showToast('Failed: ' + err.message);
           btn.disabled = false;
