@@ -12,7 +12,18 @@
 // Candidate shape (matches what the daily Claude scan and the Worker's
 // processApprovedEvents() both read/write):
 //   { id, title, venue, city, date, genre, source, ticketUrl, flags,
-//     note, status: 'pending'|'approved'|'skipped'|'created', createdAt }
+//     note, status: 'pending'|'approved'|'skipped'|'created', createdAt,
+//     history: [{ action, at, actor }] }
+//
+// Audit trail: every mutating action appends one entry to the candidate's
+// history array — { action, at (ISO timestamp), actor }. actor is whatever
+// the caller sends (optional, free-form string); the two we expect in
+// practice are 'web' (a human using admin-events.html) and 'gmail-scan'
+// (the daily Claude scan job creating new candidates). Anything else is
+// passed through as-is so another future writer doesn't need code changes
+// here — just send a recognizable actor string. history is initialized to
+// [] for candidates that don't have one yet (pre-audit-trail data), so old
+// and new candidates both work with the same rendering/append logic.
 //
 // This file only ever touches 'pending' <-> 'approved' <-> 'skipped',
 // plus creating brand-new 'pending' candidates (see the 'create' action
@@ -23,18 +34,18 @@
 //
 // POST actions:
 //   approve / skip / undo   — flip an existing candidate's status.
-//     Body: { password, id, action }
+//     Body: { password, id, action, actor? }
 //   setDate                 — set/correct startDateTime (+ optional
 //                              endDateTime, timeZone, note) on an existing
 //                              candidate without changing its status.
 //     Body: { password, id, action: 'setDate', startDateTime,
-//              endDateTime?, timeZone?, note? }
+//              endDateTime?, timeZone?, note?, actor? }
 //   create                  — add a brand-new 'pending' candidate (used by
 //                              the daily Claude Gmail-scan job to feed the
 //                              queue, same shape as the seeded candidates).
-//     Body: { password, action: 'create', candidate: { title, venue,
-//              city?, date?, genre?, source?, ticketUrl?, flags?, note?,
-//              startDateTime?, endDateTime?, id? } }
+//     Body: { password, action: 'create', actor?, candidate: { title,
+//              venue, city?, date?, genre?, source?, ticketUrl?, flags?,
+//              note?, startDateTime?, endDateTime?, id? } }
 //     Rejects with 409 DUPLICATE if an existing candidate (any status)
 //     already matches on title+venue+date — mirrors the dedupe rule the
 //     Claude scan is instructed to apply itself, as a second line of
@@ -48,7 +59,7 @@
 //                              record of a real calendar event needs a
 //                              human deciding that on purpose, not a stray
 //                              API call.
-//     Body: { password, id, action: 'delete', confirmDelete: true }
+//     Body: { password, id, action: 'delete', confirmDelete: true, actor? }
 
 const EVENT_CANDIDATES_KV_KEY = 'event-candidates';
 
@@ -79,7 +90,7 @@ export async function onRequestPost(context) {
     return json({ error: 'INVALID_JSON' }, 400);
   }
 
-  const { password, id, action, startDateTime, endDateTime, timeZone, note, candidate, confirmDelete } = body || {};
+  const { password, id, action, startDateTime, endDateTime, timeZone, note, candidate, confirmDelete, actor } = body || {};
 
   if (!env.ADMIN_PASSWORD || password !== env.ADMIN_PASSWORD) {
     return json({ error: 'UNAUTHORIZED' }, 401);
@@ -94,7 +105,7 @@ export async function onRequestPost(context) {
   }
 
   if (action === 'create') {
-    return handleCreate(env, candidate);
+    return handleCreate(env, candidate, actor);
   }
 
   if (!id) {
@@ -121,6 +132,7 @@ export async function onRequestPost(context) {
       return json({ error: 'CONFIRMATION_REQUIRED' }, 400);
     }
 
+    appendHistory(candidates[idx], 'delete', actor);
     const [removed] = candidates.splice(idx, 1);
     await env.MIXES_BACKUP.put(EVENT_CANDIDATES_KV_KEY, JSON.stringify(candidates));
     return json({ candidates, deleted: removed });
@@ -145,6 +157,7 @@ export async function onRequestPost(context) {
       flags: nextFlags,
       ...(typeof note === 'string' ? { note } : {}),
     };
+    appendHistory(candidates[idx], 'setDate', actor);
 
     await env.MIXES_BACKUP.put(EVENT_CANDIDATES_KV_KEY, JSON.stringify(candidates));
     return json({ candidates });
@@ -152,12 +165,13 @@ export async function onRequestPost(context) {
 
   const nextStatus = action === 'approve' ? 'approved' : action === 'skip' ? 'skipped' : 'pending';
   candidates[idx] = { ...candidates[idx], status: nextStatus };
+  appendHistory(candidates[idx], action, actor);
 
   await env.MIXES_BACKUP.put(EVENT_CANDIDATES_KV_KEY, JSON.stringify(candidates));
   return json({ candidates });
 }
 
-async function handleCreate(env, candidate) {
+async function handleCreate(env, candidate, actor) {
   if (!candidate || typeof candidate !== 'object') {
     return json({ error: 'MISSING_CANDIDATE' }, 400);
   }
@@ -207,12 +221,27 @@ async function handleCreate(env, candidate) {
     status: 'pending',
     ...(candidate.startDateTime ? { startDateTime: candidate.startDateTime } : {}),
     ...(candidate.endDateTime ? { endDateTime: candidate.endDateTime } : {}),
+    history: [],
   };
+  appendHistory(newCandidate, 'create', actor);
 
   candidates.push(newCandidate);
   await env.MIXES_BACKUP.put(EVENT_CANDIDATES_KV_KEY, JSON.stringify(candidates));
 
   return json({ candidates, created: newCandidate });
+}
+
+// Appends one { action, at, actor } entry to candidate.history, creating
+// the array if this is a pre-audit-trail candidate that doesn't have one
+// yet. Mutates candidate in place — callers still need to write the
+// updated candidates array back to KV afterward.
+function appendHistory(candidate, action, actor) {
+  if (!Array.isArray(candidate.history)) candidate.history = [];
+  candidate.history.push({
+    action,
+    at: new Date().toISOString(),
+    actor: actor || 'unknown',
+  });
 }
 
 function formatDisplayDate(iso, timeZone) {

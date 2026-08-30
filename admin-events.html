@@ -302,7 +302,7 @@
         if (action === 'delete' && !confirm('Delete this candidate for good? This can\'t be undone.')) return;
         btn.disabled = true;
         try {
-          const extra = action === 'delete' ? { confirmDelete: true } : undefined;
+          const extra = action === 'delete' ? { confirmDelete: true, actor: 'web' } : { actor: 'web' };
           candidates = await postAction(id, action, extra);
           render();
           showToast(action === 'approve' ? 'Queued — the Worker checks every 5 min' : action === 'delete' ? 'Deleted' : action === 'skip' ? 'Skipped' : 'Reverted to pending');
@@ -340,7 +340,7 @@
         const startDateTime = buildIsoFromLocal(dateVal, timeVal, tzVal);
         btn.disabled = true;
         try {
-          candidates = await postAction(id, 'setDate', { startDateTime, timeZone: tzVal });
+          candidates = await postAction(id, 'setDate', { startDateTime, timeZone: tzVal, actor: 'web' });
           render();
           showToast('Date saved');
         } catch (err) {
