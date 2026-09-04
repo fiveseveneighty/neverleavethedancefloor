@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Liked Tracks — NLTDF Library</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #141414;
+      --surface2: #1e1e1e;
+      --border: #2a2a2a;
+      --accent: #1db954;
+      --accent-dim: #158a3e;
+      --text: #f0f0f0;
+      --text-muted: #888;
+      --text-faint: #555;
+      --red: #e05252;
+      --yellow: #e0b352;
+      --radius: 8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Auth overlay ── */
+    #auth-overlay {
+      position: fixed; inset: 0;
+      background: var(--bg);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    #auth-overlay.hidden { display: none; }
+    .auth-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      width: min(320px, 90vw);
+      display: flex; flex-direction: column; gap: 1rem;
+    }
+    .auth-box h2 { font-size: 1.1rem; font-weight: 600; }
+    .auth-box p { color: var(--text-muted); font-size: 0.85rem; }
+    .auth-box input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 1rem;
+      padding: 0.6rem 0.8rem;
+      width: 100%;
+      outline: none;
+    }
+    .auth-box input:focus { border-color: var(--accent); }
+    .btn {
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius);
+      color: #000;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 700;
+      padding: 0.65rem 1.2rem;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: #1ed760; }
+    .btn:disabled { background: var(--border); color: var(--text-muted); cursor: not-allowed; }
+    .btn-sm {
+      font-size: 0.8rem;
+      padding: 0.45rem 0.85rem;
+    }
+    .btn-ghost {
+      background: var(--surface2);
+      color: var(--text);
+    }
+    .btn-ghost:hover { background: var(--border); }
+    #auth-error { color: var(--red); font-size: 0.82rem; display: none; }
+
+    /* ── App shell ── */
+    #app { display: none; flex-direction: column; min-height: 100vh; }
+    #app.visible { display: flex; }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1rem;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 0.75rem;
+      position: sticky; top: 0; z-index: 10;
+    }
+    header h1 { font-size: 1rem; font-weight: 700; white-space: nowrap; }
+    .header-right { display: flex; align-items: center; gap: 0.5rem; }
+
+    /* ── Stats strip ── */
+    #stats-strip {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.5rem 1rem;
+      display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem;
+      font-size: 0.8rem; color: var(--text-muted);
+    }
+    .stat strong { color: var(--text); font-weight: 600; }
+    #refresh-status {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-left: auto;
+    }
+
+    /* ── Filters ── */
+    #filters {
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1rem;
+      display: flex; flex-wrap: wrap; gap: 0.5rem;
+    }
+    .filter-group {
+      display: flex; flex-direction: column; gap: 0.2rem;
+      min-width: 100px;
+    }
+    .filter-group label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .filter-group input,
+    .filter-group select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.82rem;
+      padding: 0.38rem 0.55rem;
+      outline: none;
+      width: 100%;
+    }
+    .filter-group input:focus,
+    .filter-group select:focus { border-color: var(--accent); }
+    .filter-group.wide { min-width: 160px; flex: 1 1 160px; }
+    #filter-search { min-width: 180px; flex: 2 1 180px; }
+
+    .playlist-filter-btns { display: flex; gap: 4px; }
+    .pf-btn {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.78rem;
+      padding: 0.3rem 0.55rem;
+      transition: all 0.12s;
+      white-space: nowrap;
+    }
+    .pf-btn.active { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 700; }
+
+    /* ── Table ── */
+    #table-wrap {
+      flex: 1;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    thead { position: sticky; top: 0; z-index: 5; }
+    thead th {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      padding: 0.55rem 0.75rem;
+      text-align: left;
+      text-transform: uppercase;
+      white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+    }
+    thead th:hover { color: var(--text); }
+    thead th.sorted { color: var(--accent); }
+    thead th .sort-arrow { opacity: 0.5; font-size: 0.65rem; margin-left: 2px; }
+    thead th.sorted .sort-arrow { opacity: 1; }
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background 0.1s;
+    }
+    tbody tr:hover { background: var(--surface2); }
+    td { padding: 0.6rem 0.75rem; vertical-align: middle; }
+    td.td-artist { font-weight: 500; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+    td.td-title { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
+    td.td-bpm { text-align: right; font-variant-numeric: tabular-nums; }
+    td.td-camelot {
+      font-weight: 700;
+      font-size: 0.78rem;
+      text-align: center;
+    }
+    td.td-genre { color: var(--text-muted); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.78rem; }
+    td.td-playlist { max-width: 140px; }
+    .playlist-pill {
+      display: inline-block;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: 0.7rem;
+      padding: 0.1rem 0.45rem;
+      margin: 1px;
+      white-space: nowrap;
+    }
+    .in-playlist { color: var(--accent); }
+    .not-in-playlist { color: var(--text-faint); }
+
+    /* Camelot color coding */
+    .cam-a { color: #8ecff7; }  /* Minor — cool blue */
+    .cam-b { color: #f7d08e; }  /* Major — warm gold */
+
+    /* ── Empty / loading states ── */
+    #empty-state {
+      padding: 3rem 1rem;
+      text-align: center;
+      color: var(--text-muted);
+      display: none;
+    }
+    #empty-state.visible { display: block; }
+    #loading-state {
+      padding: 3rem 1rem;
+      text-align: center;
+      color: var(--text-muted);
+      display: none;
+    }
+    #loading-state.visible { display: block; }
+    .spinner {
+      display: inline-block;
+      width: 1.5rem; height: 1.5rem;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-bottom: 0.5rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Result count ── */
+    #result-count {
+      padding: 0.4rem 1rem;
+      font-size: 0.75rem;
+      color: var(--text-faint);
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Error banner ── */
+    #error-banner {
+      background: #2a1414;
+      border: 1px solid #5a2020;
+      border-radius: var(--radius);
+      color: var(--red);
+      font-size: 0.85rem;
+      margin: 1rem;
+      padding: 0.75rem 1rem;
+      display: none;
+    }
+    #error-banner.visible { display: block; }
+
+    /* ── Refresh overlay ── */
+    #refresh-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.75);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+    }
+    #refresh-overlay.visible { display: flex; }
+    .refresh-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem 2rem;
+      text-align: center;
+      display: flex; flex-direction: column; gap: 0.75rem; align-items: center;
+    }
+    .refresh-box p { color: var(--text-muted); font-size: 0.85rem; }
+
+    @media (max-width: 600px) {
+      header h1 { font-size: 0.9rem; }
+      #filters { gap: 0.4rem; }
+      .filter-group { min-width: 80px; }
+      td.td-genre { display: none; }
+      td.td-title { max-width: 130px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Auth overlay ── -->
+<div id="auth-overlay">
+  <div class="auth-box">
+    <h2>🎧 NLTDF Library</h2>
+    <p>Enter the admin password to access your liked tracks.</p>
+    <input type="password" id="pw-input" placeholder="Password" autocomplete="current-password" />
+    <span id="auth-error">Incorrect password — try again.</span>
+    <button class="btn" id="pw-submit">Unlock</button>
+  </div>
+</div>
+
+<!-- ── App ── -->
+<div id="app">
+  <header>
+    <h1>🎧 Liked Tracks</h1>
+    <div class="header-right">
+      <button class="btn btn-sm btn-ghost" id="refresh-btn">↻ Refresh</button>
+    </div>
+  </header>
+
+  <div id="stats-strip">
+    <span class="stat"><strong id="stat-total">—</strong> total</span>
+    <span class="stat"><strong id="stat-inpl" class="in-playlist">—</strong> in playlist</span>
+    <span class="stat"><strong id="stat-notpl" class="not-in-playlist">—</strong> unplaylisted</span>
+    <span id="refresh-status">Loading…</span>
+  </div>
+
+  <div id="filters">
+    <div class="filter-group" id="filter-search">
+      <label>Search</label>
+      <input type="search" id="search-input" placeholder="Artist or title…" autocomplete="off" />
+    </div>
+    <div class="filter-group">
+      <label>Camelot</label>
+      <select id="cam-select">
+        <option value="">All</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>BPM min</label>
+      <input type="number" id="bpm-min" placeholder="60" min="0" max="300" />
+    </div>
+    <div class="filter-group">
+      <label>BPM max</label>
+      <input type="number" id="bpm-max" placeholder="200" min="0" max="300" />
+    </div>
+    <div class="filter-group">
+      <label>Playlist</label>
+      <div class="playlist-filter-btns">
+        <button class="pf-btn active" data-pf="all">All</button>
+        <button class="pf-btn" data-pf="in">In ✓</button>
+        <button class="pf-btn" data-pf="out">Out ✗</button>
+      </div>
+    </div>
+    <div class="filter-group">
+      <label>Sort</label>
+      <select id="sort-select">
+        <option value="addedAt-desc">Date added ↓</option>
+        <option value="addedAt-asc">Date added ↑</option>
+        <option value="artist-asc">Artist A→Z</option>
+        <option value="artist-desc">Artist Z→A</option>
+        <option value="bpm-asc">BPM ↑</option>
+        <option value="bpm-desc">BPM ↓</option>
+        <option value="camelot-asc">Camelot A→Z</option>
+        <option value="title-asc">Title A→Z</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="result-count"></div>
+  <div id="error-banner"></div>
+  <div id="loading-state"><div class="spinner"></div><br>Loading your library…</div>
+  <div id="empty-state">No tracks match your filters.</div>
+
+  <div id="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th data-col="artist">Artist <span class="sort-arrow">↕</span></th>
+          <th data-col="title">Title <span class="sort-arrow">↕</span></th>
+          <th data-col="bpm">BPM <span class="sort-arrow">↕</span></th>
+          <th data-col="camelot">Key <span class="sort-arrow">↕</span></th>
+          <th data-col="genre">Genre <span class="sort-arrow">↕</span></th>
+          <th data-col="playlist">Playlist(s)</th>
+        </tr>
+      </thead>
+      <tbody id="track-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Refresh overlay ── -->
+<div id="refresh-overlay">
+  <div class="refresh-box">
+    <div class="spinner"></div>
+    <strong>Refreshing library…</strong>
+    <p>Fetching all liked tracks from Spotify.<br>This usually takes 5–15 seconds.</p>
+  </div>
+</div>
+
+<script>
+  const API_ENDPOINT = '/api/liked-tracks';
+  const WORKER_URL   = 'https://nltdf-liked-refresher.dansaltzmandesign.workers.dev/';
+  const PW_STORAGE_KEY = 'nltdf_lib_pw';
+
+  let allTracks = [];
+  let filteredTracks = [];
+  let savedPassword = '';
+  let sortCol = 'addedAt';
+  let sortDir = 'desc';
+  let playlistFilter = 'all';
+
+  const authOverlay   = document.getElementById('auth-overlay');
+  const app           = document.getElementById('app');
+  const pwInput       = document.getElementById('pw-input');
+  const pwSubmit      = document.getElementById('pw-submit');
+  const authError     = document.getElementById('auth-error');
+  const statTotal     = document.getElementById('stat-total');
+  const statInPl      = document.getElementById('stat-inpl');
+  const statNotPl     = document.getElementById('stat-notpl');
+  const refreshStatus = document.getElementById('refresh-status');
+  const searchInput   = document.getElementById('search-input');
+  const camSelect     = document.getElementById('cam-select');
+  const bpmMin        = document.getElementById('bpm-min');
+  const bpmMax        = document.getElementById('bpm-max');
+  const sortSelect    = document.getElementById('sort-select');
+  const tbody         = document.getElementById('track-tbody');
+  const loadingState  = document.getElementById('loading-state');
+  const emptyState    = document.getElementById('empty-state');
+  const resultCount   = document.getElementById('result-count');
+  const errorBanner   = document.getElementById('error-banner');
+  const refreshBtn    = document.getElementById('refresh-btn');
+  const refreshOverlay = document.getElementById('refresh-overlay');
+
+  function tryStoredPassword() {
+    try {
+      const stored = sessionStorage.getItem(PW_STORAGE_KEY);
+      if (stored) { savedPassword = stored; showApp(); loadTracks(); }
+    } catch(e) {}
+  }
+
+  pwInput.addEventListener('keydown', e => { if (e.key === 'Enter') pwSubmit.click(); });
+  pwSubmit.addEventListener('click', () => {
+    const pw = pwInput.value.trim();
+    if (!pw) return;
+    savedPassword = pw;
+    pwSubmit.disabled = true;
+    authError.style.display = 'none';
+    fetch(`${API_ENDPOINT}?password=${encodeURIComponent(pw)}`)
+      .then(r => {
+        if (r.status === 401) throw new Error('UNAUTHORIZED');
+        if (!r.ok) throw new Error('SERVER_ERROR');
+        return r.json();
+      })
+      .then(data => {
+        try { sessionStorage.setItem(PW_STORAGE_KEY, pw); } catch(e) {}
+        showApp();
+        ingestData(data);
+      })
+      .catch(err => {
+        pwSubmit.disabled = false;
+        authError.textContent = err.message === 'UNAUTHORIZED'
+          ? 'Incorrect password — try again.'
+          : 'Could not connect to server. Try again.';
+        authError.style.display = 'block';
+        savedPassword = '';
+      });
+  });
+
+  function showApp() {
+    authOverlay.classList.add('hidden');
+    app.classList.add('visible');
+  }
+
+  function loadTracks() {
+    loadingState.classList.add('visible');
+    emptyState.classList.remove('visible');
+    errorBanner.classList.remove('visible');
+    tbody.innerHTML = '';
+    resultCount.textContent = '';
+    fetch(`${API_ENDPOINT}?password=${encodeURIComponent(savedPassword)}`)
+      .then(r => {
+        if (r.status === 401) { sessionStorage.removeItem(PW_STORAGE_KEY); location.reload(); }
+        if (!r.ok) throw new Error('Server error ' + r.status);
+        return r.json();
+      })
+      .then(data => { loadingState.classList.remove('visible'); ingestData(data); })
+      .catch(err => { loadingState.classList.remove('visible'); showError('Failed to load tracks: ' + err.message); });
+  }
+
+  function ingestData(data) {
+    allTracks = data.tracks || [];
+    const inPl = allTracks.filter(t => t.inPlaylist).length;
+    statTotal.textContent = data.totalLiked ?? allTracks.length;
+    statInPl.textContent  = inPl;
+    statNotPl.textContent = allTracks.length - inPl;
+    if (data.savedAt) {
+      const d = new Date(data.savedAt);
+      refreshStatus.textContent = 'Updated ' + d.toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+    } else {
+      refreshStatus.textContent = allTracks.length ? '' : 'No data yet — click Refresh to fetch.';
+    }
+    const camKeys = [...new Set(allTracks.map(t => t.camelot).filter(Boolean))].sort(camelotSort);
+    camSelect.innerHTML = '<option value="">All keys</option>';
+    camKeys.forEach(k => {
+      const opt = document.createElement('option');
+      opt.value = k; opt.textContent = k;
+      camSelect.appendChild(opt);
+    });
+    applyFilters();
+  }
+
+  function applyFilters() {
+    const q     = searchInput.value.trim().toLowerCase();
+    const cam   = camSelect.value;
+    const bpmLo = bpmMin.value ? parseFloat(bpmMin.value) : -Infinity;
+    const bpmHi = bpmMax.value ? parseFloat(bpmMax.value) : Infinity;
+    filteredTracks = allTracks.filter(t => {
+      if (q && !t.artist.toLowerCase().includes(q) && !t.title.toLowerCase().includes(q)) return false;
+      if (cam && t.camelot !== cam) return false;
+      const bpm = t.bpm ?? 0;
+      if (bpm < bpmLo || bpm > bpmHi) return false;
+      if (playlistFilter === 'in'  && !t.inPlaylist) return false;
+      if (playlistFilter === 'out' &&  t.inPlaylist) return false;
+      return true;
+    });
+    sortTracks();
+    renderTable();
+  }
+
+  function sortTracks() {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    filteredTracks.sort((a, b) => {
+      switch (sortCol) {
+        case 'artist':  return dir * a.artist.localeCompare(b.artist);
+        case 'title':   return dir * a.title.localeCompare(b.title);
+        case 'bpm':     return dir * ((a.bpm ?? 0) - (b.bpm ?? 0));
+        case 'camelot': return dir * camelotSort(a.camelot, b.camelot);
+        case 'addedAt': return dir * (new Date(a.addedAt) - new Date(b.addedAt));
+        default: return 0;
+      }
+    });
+  }
+
+  function camelotSort(a, b) {
+    if (typeof a === 'string' && typeof b === 'string') {
+      const numA = parseInt(a); const numB = parseInt(b);
+      if (numA !== numB) return numA - numB;
+      return a.localeCompare(b);
+    }
+    return String(a || '').localeCompare(String(b || ''));
+  }
+
+  function renderTable() {
+    tbody.innerHTML = '';
+    resultCount.textContent = `${filteredTracks.length} of ${allTracks.length} tracks`;
+    if (!filteredTracks.length) { emptyState.classList.add('visible'); return; }
+    emptyState.classList.remove('visible');
+    const frag = document.createDocumentFragment();
+    filteredTracks.forEach(t => {
+      const tr = document.createElement('tr');
+      const camClass = t.camelot ? (t.camelot.endsWith('A') ? 'cam-a' : 'cam-b') : '';
+      const genre = (t.genres || []).slice(0, 2).join(', ') || '—';
+      let plHtml = '';
+      if (t.inPlaylist && t.playlistNames && t.playlistNames.length) {
+        plHtml = t.playlistNames.map(n => `<span class="playlist-pill">${escHtml(n)}</span>`).join('');
+      } else if (t.inPlaylist) {
+        plHtml = '<span class="playlist-pill in-playlist">✓</span>';
+      } else {
+        plHtml = '<span class="not-in-playlist">—</span>';
+      }
+      tr.innerHTML = `
+        <td class="td-artist" title="${escHtml(t.artist)}">${escHtml(t.artist)}</td>
+        <td class="td-title"  title="${escHtml(t.title)}">${escHtml(t.title)}</td>
+        <td class="td-bpm">${t.bpm ? Math.round(t.bpm) : '—'}</td>
+        <td class="td-camelot ${camClass}">${escHtml(t.camelot || '—')}</td>
+        <td class="td-genre"  title="${escHtml(genre)}">${escHtml(genre)}</td>
+        <td class="td-playlist">${plHtml}</td>
+      `;
+      frag.appendChild(tr);
+    });
+    tbody.appendChild(frag);
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function showError(msg) {
+    errorBanner.textContent = msg;
+    errorBanner.classList.add('visible');
+  }
+
+  searchInput.addEventListener('input', applyFilters);
+  camSelect.addEventListener('change', applyFilters);
+  bpmMin.addEventListener('input', applyFilters);
+  bpmMax.addEventListener('input', applyFilters);
+  sortSelect.addEventListener('change', () => {
+    const [col, dir] = sortSelect.value.split('-');
+    sortCol = col; sortDir = dir;
+    updateSortHeaders();
+    applyFilters();
+  });
+
+  document.querySelectorAll('.pf-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.pf-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      playlistFilter = btn.dataset.pf;
+      applyFilters();
+    });
+  });
+
+  document.querySelectorAll('thead th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (col === 'playlist') return;
+      if (sortCol === col) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortCol = col; sortDir = 'asc';
+      }
+      const matchVal = `${sortCol}-${sortDir}`;
+      const opt = sortSelect.querySelector(`option[value="${matchVal}"]`);
+      if (opt) sortSelect.value = matchVal;
+      updateSortHeaders();
+      applyFilters();
+    });
+  });
+
+  function updateSortHeaders() {
+    document.querySelectorAll('thead th[data-col]').forEach(th => {
+      th.classList.remove('sorted');
+      const arrow = th.querySelector('.sort-arrow');
+      if (arrow) arrow.textContent = '↕';
+      if (th.dataset.col === sortCol) {
+        th.classList.add('sorted');
+        if (arrow) arrow.textContent = sortDir === 'asc' ? '↑' : '↓';
+      }
+    });
+  }
+
+  refreshBtn.addEventListener('click', async () => {
+    refreshOverlay.classList.add('visible');
+    refreshBtn.disabled = true;
+    try {
+      const resp = await fetch(WORKER_URL, { method: 'GET' });
+      if (!resp.ok) {
+        const body = await resp.text();
+        throw new Error(`Worker responded ${resp.status}: ${body.slice(0, 120)}`);
+      }
+      await new Promise(r => setTimeout(r, 1500));
+      await loadTracksAsync();
+    } catch(err) {
+      showError('Refresh failed: ' + err.message);
+    } finally {
+      refreshOverlay.classList.remove('visible');
+      refreshBtn.disabled = false;
+    }
+  });
+
+  async function loadTracksAsync() {
+    try {
+      const r = await fetch(`${API_ENDPOINT}?password=${encodeURIComponent(savedPassword)}`);
+      if (r.status === 401) { sessionStorage.removeItem(PW_STORAGE_KEY); location.reload(); return; }
+      if (!r.ok) throw new Error('Status ' + r.status);
+      ingestData(await r.json());
+    } catch(err) {
+      showError('Could not reload data: ' + err.message);
+    }
+  }
+
+  tryStoredPassword();
+  updateSortHeaders();
+</script>
+</body>
+</html>
