@@ -207,7 +207,7 @@
     td.td-title { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
     td.td-bpm { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); white-space: nowrap; min-width: 48px; }
     td.td-camelot { white-space: nowrap; }
-    td.td-genre { max-width: 160px; }
+    td.td-genre, th[data-col='genre'] { display: none; } /* Genre hidden: Spotify /v1/artists blocked in Dev mode */
     td.td-playlist { max-width: 160px; }
 
     /* ── Camelot pills ── */
