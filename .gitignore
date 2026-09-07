@@ -1,1 +1,7 @@
 .wrangler/
+.DS_Store
+functions/api/.DS_Store
+Favico-for-admin.png
+NLTDF-white-neon-n-favicon-package/
+.claude/settings.local.json
+Claude outputs/
