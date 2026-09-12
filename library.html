@@ -418,7 +418,66 @@
   @media (max-width: 600px) {
     tr.now-playing .eq-title-icon { display: inline-flex; }
   }
-  </style>
+  
+  /* ── Spotify OAuth badge (mobile only) ── */
+  #spotify-connect-btn { display: none; text-decoration: none; }
+  #spotify-connected-dot { display: none; font-size: 0.75rem; color: var(--accent); align-items: center; gap: 0.3rem; }
+  @media (max-width: 600px) {
+    #spotify-connect-btn { display: inline-flex; }
+    #spotify-connected-dot { display: inline-flex; }
+  }
+
+  /* ── Mobile player bar ── */
+  #mobile-player-bar {
+    display: none;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: 80px;
+    background: #111;
+    border-top: 1px solid var(--border);
+    z-index: 20;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0 0.75rem;
+  }
+  #mobile-player-bar.active { display: flex; }
+  #mobile-player-art {
+    width: 48px; height: 48px;
+    border-radius: 4px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: var(--surface2);
+  }
+  #mobile-player-info { flex: 1; min-width: 0; }
+  #mobile-player-title { font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #mobile-player-artist { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #mobile-player-pause {
+    background: none; border: none;
+    color: var(--text); font-size: 1.5rem;
+    cursor: pointer; flex-shrink: 0; padding: 0 0.25rem;
+  }
+  #mobile-player-close {
+    background: none; border: none;
+    color: var(--text-muted); font-size: 1.1rem;
+    cursor: pointer; flex-shrink: 0; padding: 0 0.25rem;
+  }
+
+  /* ── Toast ── */
+  #spotify-toast {
+    position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 0.6rem 1rem;
+    font-size: 0.82rem; color: var(--text);
+    z-index: 30; white-space: nowrap;
+    opacity: 0; transition: opacity 0.2s;
+    pointer-events: none;
+  }
+  #spotify-toast.visible { opacity: 1; pointer-events: auto; }
+
+  /* Mobile: hide embed iframe */
+  @media (max-width: 600px) {
+    #embed-container { display: none; }
+  }
+</style>
 </head>
 <body>
 
@@ -438,6 +497,8 @@
   <header>
     <h1>🎧 Liked Tracks</h1>
     <div class="header-right">
+      <a id="spotify-connect-btn" class="btn btn-sm" href="#">Connect Spotify</a>
+      <span id="spotify-connected-dot">● Spotify</span>
       <button class="btn btn-sm btn-ghost" id="refresh-btn">↻ Refresh</button>
     </div>
   </header>
@@ -894,9 +955,150 @@
   });
   // ────────────────────────────────────────────────────────────────────────
 
-  tryStoredPassword();
-  updateSortHeaders();
+  // ── Spotify OAuth + PKCE ────────────────────────────────────────────
+  const SPOTIFY_CLIENT_ID    = '06532c6d580f458aba98f41fdf71f344';
+  const SPOTIFY_REDIRECT_URI = 'https://neverleavethedancefloor.com/library';
+  const SPOTIFY_SCOPES       = 'user-modify-playback-state user-read-playback-state user-read-currently-playing';
+  const SP_TOKEN_KEY         = 'nltdf_sp_tokens';
+  const SP_VERIFIER_KEY      = 'nltdf_sp_verifier';
+
+  function generateCodeVerifier() {
+    const arr = new Uint8Array(48);
+    crypto.getRandomValues(arr);
+    return btoa(String.fromCharCode(...arr))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  async function generateCodeChallenge(verifier) {
+    const enc  = new TextEncoder().encode(verifier);
+    const hash = await crypto.subtle.digest('SHA-256', enc);
+    return btoa(String.fromCharCode(...new Uint8Array(hash)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function getTokens() {
+    try { return JSON.parse(localStorage.getItem(SP_TOKEN_KEY) || 'null'); } catch(e) { return null; }
+  }
+  function saveTokens(t) {
+    try { localStorage.setItem(SP_TOKEN_KEY, JSON.stringify(t)); } catch(e) {}
+  }
+  function clearTokens() {
+    try { localStorage.removeItem(SP_TOKEN_KEY); } catch(e) {}
+  }
+  function isTokenValid(t) {
+    return t && t.access_token && t.expires_at && Date.now() < t.expires_at - 30000;
+  }
+
+  async function refreshAccessToken() {
+    const t = getTokens();
+    if (!t || !t.refresh_token) { clearTokens(); return null; }
+    try {
+      const resp = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type:    'refresh_token',
+          refresh_token: t.refresh_token,
+          client_id:     SPOTIFY_CLIENT_ID,
+        }),
+      });
+      if (!resp.ok) { clearTokens(); return null; }
+      const data = await resp.json();
+      const updated = {
+        access_token:  data.access_token,
+        refresh_token: data.refresh_token || t.refresh_token,
+        expires_at:    Date.now() + data.expires_in * 1000,
+      };
+      saveTokens(updated);
+      return updated.access_token;
+    } catch(e) { return null; }
+  }
+
+  async function getAccessToken() {
+    const t = getTokens();
+    if (!t) return null;
+    if (isTokenValid(t)) return t.access_token;
+    return await refreshAccessToken();
+  }
+
+  async function startSpotifyAuth() {
+    const verifier  = generateCodeVerifier();
+    const challenge = await generateCodeChallenge(verifier);
+    try { sessionStorage.setItem(SP_VERIFIER_KEY, verifier); } catch(e) {}
+    const params = new URLSearchParams({
+      response_type:         'code',
+      client_id:             SPOTIFY_CLIENT_ID,
+      scope:                 SPOTIFY_SCOPES,
+      redirect_uri:          SPOTIFY_REDIRECT_URI,
+      code_challenge_method: 'S256',
+      code_challenge:        challenge,
+    });
+    location.href = `https://accounts.spotify.com/authorize?${params}`;
+  }
+
+  async function handleAuthCallback() {
+    const params = new URLSearchParams(location.search);
+    const code   = params.get('code');
+    if (!code) return;
+    history.replaceState({}, '', location.pathname);
+    const verifier = sessionStorage.getItem(SP_VERIFIER_KEY) || '';
+    try { sessionStorage.removeItem(SP_VERIFIER_KEY); } catch(e) {}
+    try {
+      const resp = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type:    'authorization_code',
+          code,
+          redirect_uri:  SPOTIFY_REDIRECT_URI,
+          client_id:     SPOTIFY_CLIENT_ID,
+          code_verifier: verifier,
+        }),
+      });
+      if (!resp.ok) { console.warn('Spotify token exchange failed', resp.status); return; }
+      const data = await resp.json();
+      saveTokens({
+        access_token:  data.access_token,
+        refresh_token: data.refresh_token,
+        expires_at:    Date.now() + data.expires_in * 1000,
+      });
+    } catch(e) { console.warn('Spotify auth callback error', e); }
+  }
+
+  function updateSpotifyUI() {
+    const connectBtn   = document.getElementById('spotify-connect-btn');
+    const connectedDot = document.getElementById('spotify-connected-dot');
+    if (getTokens()) {
+      connectBtn.style.display   = 'none';
+      connectedDot.style.display = '';
+    } else {
+      connectBtn.style.display   = '';
+      connectedDot.style.display = 'none';
+    }
+  }
+
+  document.getElementById('spotify-connect-btn').addEventListener('click', async (e) => {
+    e.preventDefault();
+    await startSpotifyAuth();
+  });
+  // ────────────────────────────────────────────────────────────────────────────
+
+  handleAuthCallback().then(() => {
+    updateSpotifyUI();
+    tryStoredPassword();
+    updateSortHeaders();
+  });
 </script>
 <script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
+<!-- ── Mobile Spotify player bar ── -->
+<div id="mobile-player-bar">
+  <img id="mobile-player-art" src="" alt="" />
+  <div id="mobile-player-info">
+    <div id="mobile-player-title">—</div>
+    <div id="mobile-player-artist">—</div>
+  </div>
+  <button id="mobile-player-pause" aria-label="Pause">⏸</button>
+  <button id="mobile-player-close" aria-label="Close player">✕</button>
+</div>
+<div id="spotify-toast" role="status" aria-live="polite"></div>
 </body>
 </html>
