@@ -878,8 +878,8 @@
     playerBar.classList.add('active');
     document.body.classList.add('player-active');
     if (embedController) {
-      embedController.loadEntity(`spotify:track:${t.id}`);
-      embedController.togglePlay();
+      embedController.loadUri(`spotify:track:${t.id}`);
+      embedController.play();
     }
   }
 
