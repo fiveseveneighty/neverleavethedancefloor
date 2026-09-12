@@ -342,7 +342,7 @@
   }
   #player-bar.active { display: flex; }
   body.player-active { padding-bottom: 80px; }
-  #player-iframe { flex: 1; height: 80px; border: none; }
+  #embed-container { flex: 1; height: 80px; overflow: hidden; }
   #player-close {
     background: none; border: none;
     color: var(--text-muted); font-size: 1.1rem;
@@ -525,7 +525,7 @@
 
 <!-- ── Spotify player bar ── -->
 <div id="player-bar">
-  <iframe id="player-iframe" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy" frameborder="0"></iframe>
+  <div id="embed-container"></div>
   <button id="player-close" aria-label="Close player">✕</button>
 </div>
 <script>
@@ -859,21 +859,32 @@
 
   // ── Spotify player ──────────────────────────────────────────────────────
   let currentPlayingRow = null;
-  const playerBar    = document.getElementById('player-bar');
-  const playerIframe = document.getElementById('player-iframe');
-  const playerClose  = document.getElementById('player-close');
+  let embedController   = null;
+  const playerBar   = document.getElementById('player-bar');
+  const playerClose = document.getElementById('player-close');
+
+  window.onSpotifyIframeApiReady = (IFrameAPI) => {
+    const element = document.getElementById('embed-container');
+    const options = { width: '100%', height: '80' };
+    IFrameAPI.createController(element, options, (controller) => {
+      embedController = controller;
+    });
+  };
 
   function loadTrack(t, tr) {
     if (currentPlayingRow) currentPlayingRow.classList.remove('now-playing');
     currentPlayingRow = tr;
     tr.classList.add('now-playing');
-    playerIframe.src = `https://open.spotify.com/embed/track/${t.id}?utm_source=generator&theme=0`;
     playerBar.classList.add('active');
     document.body.classList.add('player-active');
+    if (embedController) {
+      embedController.loadEntity(`spotify:track:${t.id}`);
+      embedController.togglePlay();
+    }
   }
 
   playerClose.addEventListener('click', () => {
-    playerIframe.src = '';
+    if (embedController) embedController.togglePlay();
     playerBar.classList.remove('active');
     document.body.classList.remove('player-active');
     if (currentPlayingRow) {
@@ -886,5 +897,6 @@
   tryStoredPassword();
   updateSortHeaders();
 </script>
+<script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
 </body>
 </html>
