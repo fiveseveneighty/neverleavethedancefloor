@@ -330,6 +330,94 @@
       td.td-title { max-width: 130px; }
       td.td-art, thead th.no-sort { display: none; }
     }
+  /* ── Spotify player bar ── */
+  #player-bar {
+    display: none;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: 80px;
+    background: #000;
+    border-top: 1px solid var(--border);
+    z-index: 20;
+    align-items: center;
+  }
+  #player-bar.active { display: flex; }
+  body.player-active { padding-bottom: 80px; }
+  #player-iframe { flex: 1; height: 80px; border: none; }
+  #player-close {
+    background: none; border: none;
+    color: var(--text-muted); font-size: 1.1rem;
+    cursor: pointer; padding: 0 1rem; height: 100%;
+    flex-shrink: 0;
+  }
+  #player-close:hover { color: var(--text); }
+
+  /* ── Art wrap + overlay (desktop hover + now-playing eq) ── */
+  .art-wrap {
+    position: relative; display: inline-block;
+    width: 36px; height: 36px;
+  }
+  .art-overlay {
+    position: absolute; inset: 0;
+    border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.15s;
+    background: rgba(0,0,0,0.55);
+  }
+  .art-overlay::after {
+    content: '▶';
+    color: #fff; font-size: 0.9rem;
+    line-height: 1;
+  }
+  .art-wrap:hover .art-overlay { opacity: 1; }
+
+  /* Now-playing row: eq bars on art, green title */
+  tr.now-playing .art-overlay {
+    opacity: 1;
+    background: rgba(0,0,0,0.6);
+  }
+  tr.now-playing .art-overlay::after { content: ''; }
+  tr.now-playing .eq-bars {
+    display: flex; align-items: flex-end;
+    gap: 2px; height: 18px;
+  }
+  .eq-bars { display: none; }
+  .eq-bars span {
+    display: block; width: 3px;
+    background: var(--accent);
+    border-radius: 1px;
+    animation: eq-bounce 0s ease-in-out infinite alternate;
+  }
+  .eq-bars span:nth-child(1) { animation-duration: 0.55s; animation-delay: 0s; }
+  .eq-bars span:nth-child(2) { animation-duration: 0.7s;  animation-delay: 0.15s; }
+  .eq-bars span:nth-child(3) { animation-duration: 0.45s; animation-delay: 0.05s; }
+  @keyframes eq-bounce {
+    from { height: 3px; }
+    to   { height: 16px; }
+  }
+
+  /* Green title when now-playing */
+  tr.now-playing td.td-title { color: var(--accent); font-weight: 600; }
+
+  /* ── Mobile: eq icon before title (no art column) ── */
+  .eq-title-icon {
+    display: none;
+    align-items: flex-end;
+    gap: 2px; height: 12px;
+    margin-right: 5px;
+    vertical-align: middle;
+  }
+  .eq-title-icon span {
+    display: inline-block; width: 2px;
+    background: var(--accent); border-radius: 1px;
+    animation: eq-bounce 0s ease-in-out infinite alternate;
+  }
+  .eq-title-icon span:nth-child(1) { animation-duration: 0.55s; animation-delay: 0s; }
+  .eq-title-icon span:nth-child(2) { animation-duration: 0.7s;  animation-delay: 0.15s; }
+  .eq-title-icon span:nth-child(3) { animation-duration: 0.45s; animation-delay: 0.05s; }
+
+  @media (max-width: 600px) {
+    tr.now-playing .eq-title-icon { display: inline-flex; }
+  }
   </style>
 </head>
 <body>
@@ -638,9 +726,10 @@
       const tr = document.createElement('tr');
 
       // Album art
-      const artHtml = t.albumArt
+      const artInner = t.albumArt
         ? `<img class="art-thumb" src="${escHtml(t.albumArt)}" alt="" loading="lazy" />`
         : `<div class="art-placeholder">♪</div>`;
+      const artHtml = `<div class="art-wrap">${artInner}<div class="art-overlay"><div class="eq-bars"><span></span><span></span><span></span></div></div></div>`;
 
       // Genres as pills
       const genreTags = (t.genres || []).slice(0, 2)
@@ -660,12 +749,16 @@
       tr.innerHTML = `
         <td class="td-art">${artHtml}</td>
         <td class="td-artist" title="${escHtml(t.artist)}">${escHtml(t.artist)}</td>
-        <td class="td-title"  title="${escHtml(t.title)}">${escHtml(t.title)}</td>
+        <td class="td-title"  title="${escHtml(t.title)}"><span class="eq-title-icon"><span></span><span></span><span></span></span>${escHtml(t.title)}</td>
         <td class="td-bpm">${t.bpm ? Math.round(t.bpm) : '—'}</td>
         <td class="td-camelot">${camelotPill(t.camelot)}</td>
         <td class="td-genre">${genreTags}</td>
         <td class="td-playlist">${plHtml}</td>
       `;
+      tr.addEventListener('click', () => {
+        if (tr.classList.contains('now-playing')) return;
+        loadTrack(t, tr);
+      });
       frag.appendChild(tr);
     });
     tbody.appendChild(frag);
@@ -759,8 +852,39 @@
     }
   }
 
+  // ── Spotify player ──────────────────────────────────────────────────────
+  let currentPlayingRow = null;
+  const playerBar    = document.getElementById('player-bar');
+  const playerIframe = document.getElementById('player-iframe');
+  const playerClose  = document.getElementById('player-close');
+
+  function loadTrack(t, tr) {
+    if (currentPlayingRow) currentPlayingRow.classList.remove('now-playing');
+    currentPlayingRow = tr;
+    tr.classList.add('now-playing');
+    playerIframe.src = `https://open.spotify.com/embed/track/${t.id}?utm_source=generator&theme=0`;
+    playerBar.classList.add('active');
+    document.body.classList.add('player-active');
+  }
+
+  playerClose.addEventListener('click', () => {
+    playerIframe.src = '';
+    playerBar.classList.remove('active');
+    document.body.classList.remove('player-active');
+    if (currentPlayingRow) {
+      currentPlayingRow.classList.remove('now-playing');
+      currentPlayingRow = null;
+    }
+  });
+  // ────────────────────────────────────────────────────────────────────────
+
   tryStoredPassword();
   updateSortHeaders();
 </script>
+<!-- ── Spotify player bar ── -->
+<div id="player-bar">
+  <iframe id="player-iframe" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy" frameborder="0"></iframe>
+  <button id="player-close" aria-label="Close player">✕</button>
+</div>
 </body>
 </html>
