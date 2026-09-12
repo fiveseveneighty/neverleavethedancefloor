@@ -590,6 +590,17 @@
   <div id="embed-container"></div>
   <button id="player-close" aria-label="Close player">✕</button>
 </div>
+<!-- ── Mobile Spotify player bar ── -->
+<div id="mobile-player-bar">
+  <img id="mobile-player-art" src="" alt="" />
+  <div id="mobile-player-info">
+    <div id="mobile-player-title">—</div>
+    <div id="mobile-player-artist">—</div>
+  </div>
+  <button id="mobile-player-pause" aria-label="Pause">⏸</button>
+  <button id="mobile-player-close" aria-label="Close player">✕</button>
+</div>
+<div id="spotify-toast" role="status" aria-live="polite"></div>
 <script>
   const API_ENDPOINT   = '/api/liked-tracks';
   const WORKER_URL     = 'https://nltdf-liked-refresher.dansaltzmandesign.workers.dev/';
@@ -1231,16 +1242,5 @@
   });
 </script>
 <script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
-<!-- ── Mobile Spotify player bar ── -->
-<div id="mobile-player-bar">
-  <img id="mobile-player-art" src="" alt="" />
-  <div id="mobile-player-info">
-    <div id="mobile-player-title">—</div>
-    <div id="mobile-player-artist">—</div>
-  </div>
-  <button id="mobile-player-pause" aria-label="Pause">⏸</button>
-  <button id="mobile-player-close" aria-label="Close player">✕</button>
-</div>
-<div id="spotify-toast" role="status" aria-live="polite"></div>
 </body>
 </html>
