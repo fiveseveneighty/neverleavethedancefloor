@@ -1012,7 +1012,7 @@
   }
 
   function updateMobileBar(t) {
-    mobileArt.src    = t.image || '';
+    mobileArt.src    = t.albumArt || '';
     mobileTitle.textContent  = t.title || '';
     mobileArtist.textContent = t.artist || '';
     mobilePauseBtn.textContent = '⏸';
@@ -1031,15 +1031,23 @@
   async function mobilePlay(t) {
     const devices = await spotifyFetch('GET', '/me/player/devices');
     if (!devices || !devices.devices || devices.devices.length === 0) {
-      showToast('No Spotify devices found — open Spotify first');
+      showToast('Open Spotify first, then tap a track');
       return;
     }
     const active = devices.devices.find(d => d.is_active) || devices.devices[0];
-    showToast('Device: ' + active.name + (active.is_active ? ' (active)' : ' (inactive)'));
+    if (!active.id) {
+      showToast('Open Spotify first, then tap a track');
+      return;
+    }
+    // If device exists but isn't active, transfer playback to wake it
+    if (!active.is_active) {
+      await spotifyFetch('PUT', '/me/player', { device_ids: [active.id], play: false });
+      await new Promise(r => setTimeout(r, 500));
+    }
     mobileCurrentUri = 'spotify:track:' + t.id;
     const playRes = await spotifyFetch('PUT', '/me/player/play', {
       uris: [mobileCurrentUri],
-      ...(active.id ? { device_id: active.id } : {})
+      device_id: active.id,
     });
     if (playRes === null) return; // error already toasted
     showToast('Play sent ✓');
