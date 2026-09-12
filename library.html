@@ -460,6 +460,7 @@
     color: var(--text-muted); font-size: 1.1rem;
     cursor: pointer; flex-shrink: 0; padding: 0 0.25rem;
   }
+  body.mobile-player-active { padding-bottom: 80px; }
 
   /* ── Toast ── */
   #spotify-toast {
@@ -822,7 +823,10 @@
         <td class="td-playlist">${plHtml}</td>
       `;
       tr.addEventListener('click', () => {
-        if (tr.classList.contains('now-playing')) return;
+        if (tr.classList.contains('now-playing')) {
+          if (isMobile() && getTokens()) mobilePause();
+          return;
+        }
         loadTrack(t, tr);
       });
       frag.appendChild(tr);
@@ -936,11 +940,15 @@
     if (currentPlayingRow) currentPlayingRow.classList.remove('now-playing');
     currentPlayingRow = tr;
     tr.classList.add('now-playing');
-    playerBar.classList.add('active');
-    document.body.classList.add('player-active');
-    if (embedController) {
-      embedController.loadUri(`spotify:track:${t.id}`);
-      embedController.play();
+    if (isMobile() && getTokens()) {
+      mobilePlay(t);
+    } else {
+      playerBar.classList.add('active');
+      document.body.classList.add('player-active');
+      if (embedController) {
+        embedController.loadUri(`spotify:track:${t.id}`);
+        embedController.play();
+      }
     }
   }
 
@@ -953,6 +961,118 @@
       currentPlayingRow = null;
     }
   });
+  // ── Mobile Spotify Web API playback ─────────────────────────────────────
+  const mobilePlayerBar  = document.getElementById('mobile-player-bar');
+  const mobileArt        = document.getElementById('mobile-player-art');
+  const mobileTitle      = document.getElementById('mobile-player-title');
+  const mobileArtist     = document.getElementById('mobile-player-artist');
+  const mobilePauseBtn   = document.getElementById('mobile-player-pause');
+  const mobileCloseBtn   = document.getElementById('mobile-player-close');
+  let   mobilePollingId  = null;
+  let   mobilePaused     = false;
+  let   mobileCurrentUri = null;
+
+  function isMobile() { return window.innerWidth <= 600; }
+
+  async function spotifyFetch(method, path, body) {
+    const tokens = getTokens();
+    if (!tokens) return null;
+    const res = await fetch('https://api.spotify.com/v1' + path, {
+      method,
+      headers: {
+        'Authorization': 'Bearer ' + tokens.access_token,
+        ...(body ? { 'Content-Type': 'application/json' } : {})
+      },
+      ...(body ? { body: JSON.stringify(body) } : {})
+    });
+    if (res.status === 401) { clearTokens(); updateSpotifyUI(); return null; }
+    if (res.status === 204 || res.status === 202) return {};
+    if (res.ok) return res.json().catch(() => ({}));
+    return null;
+  }
+
+  function showToast(msg) {
+    const el = document.getElementById('spotify-toast');
+    el.textContent = msg;
+    el.classList.add('active');
+    setTimeout(() => el.classList.remove('active'), 3000);
+  }
+
+  function updateMobileBar(t) {
+    mobileArt.src    = t.image || '';
+    mobileTitle.textContent  = t.title || '';
+    mobileArtist.textContent = t.artist || '';
+    mobilePauseBtn.textContent = '⏸';
+    mobilePaused = false;
+    mobilePlayerBar.classList.add('active');
+    document.body.classList.add('mobile-player-active');
+  }
+
+  function hideMobileBar() {
+    mobilePlayerBar.classList.remove('active');
+    document.body.classList.remove('mobile-player-active');
+    stopPolling();
+    mobileCurrentUri = null;
+  }
+
+  async function mobilePlay(t) {
+    const devices = await spotifyFetch('GET', '/me/player/devices');
+    if (!devices || !devices.devices || devices.devices.length === 0) {
+      showToast('Open Spotify on your phone first');
+      return;
+    }
+    const active = devices.devices.find(d => d.is_active) || devices.devices[0];
+    mobileCurrentUri = 'spotify:track:' + t.id;
+    await spotifyFetch('PUT', '/me/player/play?device_id=' + active.id, {
+      uris: [mobileCurrentUri]
+    });
+    updateMobileBar(t);
+    setTimeout(() => startPolling(), 5000);
+  }
+
+  async function mobilePause() {
+    await spotifyFetch('PUT', '/me/player/pause');
+    mobilePauseBtn.textContent = '▶';
+    mobilePaused = true;
+  }
+
+  async function mobileResume() {
+    await spotifyFetch('PUT', '/me/player/play');
+    mobilePauseBtn.textContent = '⏸';
+    mobilePaused = false;
+  }
+
+  function startPolling() {
+    stopPolling();
+    mobilePollingId = setInterval(async () => {
+      const state = await spotifyFetch('GET', '/me/player');
+      if (!state || !state.item) return;
+      if (!state.is_playing && !mobilePaused) {
+        mobilePauseBtn.textContent = '▶';
+        mobilePaused = true;
+      }
+    }, 3000);
+  }
+
+  function stopPolling() {
+    if (mobilePollingId) { clearInterval(mobilePollingId); mobilePollingId = null; }
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopPolling();
+    else if (mobilePlayerBar.classList.contains('active')) startPolling();
+  });
+
+  mobilePauseBtn.addEventListener('click', () => {
+    if (mobilePaused) mobileResume(); else mobilePause();
+  });
+
+  mobileCloseBtn.addEventListener('click', () => {
+    mobilePause();
+    hideMobileBar();
+    if (currentPlayingRow) { currentPlayingRow.classList.remove('now-playing'); currentPlayingRow = null; }
+  });
+
   // ────────────────────────────────────────────────────────────────────────
 
   // ── Spotify OAuth + PKCE ────────────────────────────────────────────
