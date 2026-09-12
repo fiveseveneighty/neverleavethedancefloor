@@ -1034,7 +1034,11 @@
       showToast('Open Spotify first, then tap a track');
       return;
     }
-    const active = devices.devices.find(d => d.is_active) || devices.devices[0];
+    const list   = devices.devices;
+    const active = list.find(d => d.is_active && d.type === 'Smartphone')
+                || list.find(d => d.type === 'Smartphone')
+                || list.find(d => d.is_active)
+                || list[0];
     if (!active.id) {
       showToast('Open Spotify first, then tap a track');
       return;
