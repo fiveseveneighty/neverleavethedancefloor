@@ -985,9 +985,11 @@
       },
       ...(body ? { body: JSON.stringify(body) } : {})
     });
-    if (res.status === 401) { clearTokens(); updateSpotifyUI(); return null; }
+    if (res.status === 401) { clearTokens(); updateSpotifyUI(); showToast('Spotify: session expired — reconnect'); return null; }
+    if (res.status === 403) { showToast('Spotify 403: Premium required or bad scope'); return null; }
     if (res.status === 204 || res.status === 202) return {};
     if (res.ok) return res.json().catch(() => ({}));
+    showToast('Spotify error ' + res.status + ' on ' + path);
     return null;
   }
 
@@ -1018,14 +1020,18 @@
   async function mobilePlay(t) {
     const devices = await spotifyFetch('GET', '/me/player/devices');
     if (!devices || !devices.devices || devices.devices.length === 0) {
-      showToast('Open Spotify on your phone first');
+      showToast('No Spotify devices found — open Spotify first');
       return;
     }
     const active = devices.devices.find(d => d.is_active) || devices.devices[0];
+    showToast('Device: ' + active.name + (active.is_active ? ' (active)' : ' (inactive)'));
     mobileCurrentUri = 'spotify:track:' + t.id;
-    await spotifyFetch('PUT', '/me/player/play?device_id=' + active.id, {
-      uris: [mobileCurrentUri]
+    const playRes = await spotifyFetch('PUT', '/me/player/play', {
+      uris: [mobileCurrentUri],
+      ...(active.id ? { device_id: active.id } : {})
     });
+    if (playRes === null) return; // error already toasted
+    showToast('Play sent ✓');
     updateMobileBar(t);
     setTimeout(() => startPolling(), 5000);
   }
@@ -1157,6 +1163,13 @@
 
   async function handleAuthCallback() {
     const params = new URLSearchParams(location.search);
+    // ?spotify_reset clears stored tokens and forces re-auth
+    if (params.get('spotify_reset') !== null) {
+      clearTokens();
+      history.replaceState({}, '', location.pathname);
+      await startSpotifyAuth();
+      return;
+    }
     const code   = params.get('code');
     if (!code) return;
     history.replaceState({}, '', location.pathname);
