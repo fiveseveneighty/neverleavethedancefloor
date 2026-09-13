@@ -484,6 +484,13 @@
     background: #fff;
     border-radius: 2px;
   }
+  #mobile-player-times {
+    display: flex; justify-content: space-between;
+    padding: 0 0.75rem 0.55rem;
+    margin-top: -4px;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+  }
 
   /* ── Toast ── */
   #spotify-toast {
@@ -632,6 +639,10 @@
     <div id="mobile-player-track">
       <div id="mobile-player-fill"></div>
     </div>
+  </div>
+  <div id="mobile-player-times">
+    <span id="mobile-player-time-elapsed">0:00</span>
+    <span id="mobile-player-time-remaining">-0:00</span>
   </div>
 </div>
 <div id="spotify-toast" role="status" aria-live="polite"></div>
@@ -1029,6 +1040,8 @@
   const mobileProgressEl  = document.getElementById('mobile-player-progress');
   const mobileTrackEl     = document.getElementById('mobile-player-track');
   const mobileFillEl      = document.getElementById('mobile-player-fill');
+  const mobileTimeElapsedEl   = document.getElementById('mobile-player-time-elapsed');
+  const mobileTimeRemainingEl = document.getElementById('mobile-player-time-remaining');
   let   mobilePollingId  = null;
   let   mobilePaused     = false;
   let   mobileCurrentUri = null;
@@ -1104,6 +1117,14 @@
     renderScrubber();
   }
 
+  function formatTime(ms) {
+    if (!ms || ms < 0) ms = 0;
+    const totalSec = Math.floor(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
   function renderScrubber() {
     let pos = scrubPosition;
     if (!mobilePaused && !isDragging && scrubDuration) {
@@ -1112,6 +1133,8 @@
     const frac = scrubDuration ? pos / scrubDuration : 0;
     mobileFillEl.style.width = (frac * 100) + '%';
     mobileProgressEl.setAttribute('aria-valuenow', Math.round(frac * 1000));
+    mobileTimeElapsedEl.textContent = formatTime(pos);
+    mobileTimeRemainingEl.textContent = '-' + formatTime(Math.max(0, scrubDuration - pos));
   }
 
   (function scrubTick() {
