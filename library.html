@@ -965,7 +965,7 @@
     currentPlayingRow = tr;
     tr.classList.add('now-playing');
     if (isMobile() && getTokens()) {
-      mobilePlay(t);
+      mobilePlay(t, tr);
     } else {
       playerBar.classList.add('active');
       document.body.classList.add('player-active');
@@ -995,6 +995,7 @@
   let   mobilePollingId  = null;
   let   mobilePaused     = false;
   let   mobileCurrentUri = null;
+  let   mobilePlayGen    = 0;
 
   function isMobile() { return window.innerWidth <= 600; }
 
@@ -1049,30 +1050,45 @@
         || null;
   }
 
-  async function mobilePlay(t) {
+  async function mobilePlay(t, tr) {
+    const myGen = ++mobilePlayGen;
+    function stale() { return myGen !== mobilePlayGen; }
+    function rollback(msg) {
+      if (stale()) return; // a newer tap already superseded this one — leave its state alone
+      showToast(msg);
+      hideMobileBar();
+      if (currentPlayingRow === tr) {
+        tr.classList.remove('now-playing');
+        currentPlayingRow = null;
+      }
+    }
+    updateMobileBar(t); // immediate feedback — bar shows right away, before any network calls resolve
     let active = await findSmartphoneDevice();
+    if (stale()) return;
     if (!active) {
       // Registration lag: Spotify can take a moment to see a just-opened app. One retry.
       await new Promise(r => setTimeout(r, 1200));
       active = await findSmartphoneDevice();
+      if (stale()) return;
     }
     if (!active) {
-      showToast('Open Spotify on your iPhone, then tap the track again');
+      rollback('Open Spotify on your iPhone, then tap the track again');
       return;
     }
     // If device exists but isn't active, transfer playback to wake it
     if (!active.is_active) {
       await spotifyFetch('PUT', '/me/player', { device_ids: [active.id], play: false });
       await new Promise(r => setTimeout(r, 500));
+      if (stale()) return;
     }
     mobileCurrentUri = 'spotify:track:' + t.id;
     const playRes = await spotifyFetch('PUT', '/me/player/play', {
       uris: [mobileCurrentUri],
       device_id: active.id,
     });
-    if (playRes === null) return; // error already toasted
+    if (stale()) return;
+    if (playRes === null) { rollback('Could not start playback — try again'); return; }
     showToast('Play sent ✓');
-    updateMobileBar(t);
     setTimeout(() => startPolling(), 5000);
   }
 
@@ -1159,29 +1175,38 @@
     return t && t.access_token && t.expires_at && Date.now() < t.expires_at - 30000;
   }
 
+  let refreshPromise = null;
   async function refreshAccessToken() {
-    const t = getTokens();
-    if (!t || !t.refresh_token) { clearTokens(); return null; }
+    if (refreshPromise) return refreshPromise; // an overlapping call already has one in flight
+    refreshPromise = (async () => {
+      const t = getTokens();
+      if (!t || !t.refresh_token) { clearTokens(); return null; }
+      try {
+        const resp = await fetch('https://accounts.spotify.com/api/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            grant_type:    'refresh_token',
+            refresh_token: t.refresh_token,
+            client_id:     SPOTIFY_CLIENT_ID,
+          }),
+        });
+        if (!resp.ok) { clearTokens(); return null; }
+        const data = await resp.json();
+        const updated = {
+          access_token:  data.access_token,
+          refresh_token: data.refresh_token || t.refresh_token,
+          expires_at:    Date.now() + data.expires_in * 1000,
+        };
+        saveTokens(updated);
+        return updated.access_token;
+      } catch(e) { return null; }
+    })();
     try {
-      const resp = await fetch('https://accounts.spotify.com/api/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type:    'refresh_token',
-          refresh_token: t.refresh_token,
-          client_id:     SPOTIFY_CLIENT_ID,
-        }),
-      });
-      if (!resp.ok) { clearTokens(); return null; }
-      const data = await resp.json();
-      const updated = {
-        access_token:  data.access_token,
-        refresh_token: data.refresh_token || t.refresh_token,
-        expires_at:    Date.now() + data.expires_in * 1000,
-      };
-      saveTokens(updated);
-      return updated.access_token;
-    } catch(e) { return null; }
+      return await refreshPromise;
+    } finally {
+      refreshPromise = null;
+    }
   }
 
   async function getAccessToken() {
@@ -1191,19 +1216,42 @@
     return await refreshAccessToken();
   }
 
-  async function startSpotifyAuth() {
-    const verifier  = generateCodeVerifier();
-    const challenge = await generateCodeChallenge(verifier);
-    try { sessionStorage.setItem(SP_VERIFIER_KEY, verifier); } catch(e) {}
+  let spotifyAuthReady = null;
+  function prepareSpotifyAuth() {
+    return (async () => {
+      const verifier  = generateCodeVerifier();
+      const challenge = await generateCodeChallenge(verifier);
+      return { verifier, challenge };
+    })();
+  }
+  function armSpotifyAuth() {
+    prepareSpotifyAuth().then(v => { spotifyAuthReady = v; }).catch(err => console.warn('Spotify auth prep failed', err));
+  }
+  function redirectToSpotifyAuth(prepared) {
+    try { sessionStorage.setItem(SP_VERIFIER_KEY, prepared.verifier); } catch(e) {}
     const params = new URLSearchParams({
       response_type:         'code',
       client_id:             SPOTIFY_CLIENT_ID,
       scope:                 SPOTIFY_SCOPES,
       redirect_uri:          SPOTIFY_REDIRECT_URI,
       code_challenge_method: 'S256',
-      code_challenge:        challenge,
+      code_challenge:        prepared.challenge,
     });
     location.href = `https://accounts.spotify.com/authorize?${params}`;
+  }
+  // Pre-compute the PKCE pair as early as possible so the click handler can redirect
+  // synchronously — awaiting crypto.subtle.digest inside the click itself risks losing
+  // iOS's gesture-context window for the location.href redirect.
+  armSpotifyAuth();
+  function startSpotifyAuth() {
+    if (spotifyAuthReady) {
+      const prepared = spotifyAuthReady;
+      spotifyAuthReady = null;
+      redirectToSpotifyAuth(prepared);
+      return;
+    }
+    // Rare: tapped before page-load prep finished — fall back to the async path.
+    prepareSpotifyAuth().then(redirectToSpotifyAuth).catch(err => showToast('Auth error: ' + err.message));
   }
 
   async function handleAuthCallback() {
@@ -1254,13 +1302,9 @@
     }
   }
 
-  document.getElementById('spotify-connect-btn').addEventListener('click', async (e) => {
+  document.getElementById('spotify-connect-btn').addEventListener('click', (e) => {
     e.preventDefault();
-    try {
-      await startSpotifyAuth();
-    } catch(err) {
-      showToast('Auth error: ' + err.message);
-    }
+    startSpotifyAuth();
   });
   // ────────────────────────────────────────────────────────────────────────────
 
