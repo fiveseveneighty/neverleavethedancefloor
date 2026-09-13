@@ -428,19 +428,22 @@
     #spotify-connected-dot { display: inline-flex; }
   }
 
-  /* ── Mobile player bar ── */
+  /* ── Mobile player bar (Phase 2 restyle, Sep 12 2026) ── */
   #mobile-player-bar {
     display: none;
-    position: fixed; bottom: 0; left: 0; right: 0;
-    height: 80px;
-    background: #111;
-    border-top: 1px solid var(--border);
+    flex-direction: column;
+    position: fixed; left: 10px; right: 10px; bottom: 10px;
+    background: var(--player-bg, #111);
+    border-radius: 16px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.45);
     z-index: 20;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0 0.75rem;
+    overflow: hidden;
   }
   #mobile-player-bar.active { display: flex; }
+  #mobile-player-row {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.6rem 0.75rem 0.5rem;
+  }
   #mobile-player-art {
     width: 48px; height: 48px;
     border-radius: 4px;
@@ -453,20 +456,39 @@
   #mobile-player-artist { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #mobile-player-pause {
     background: none; border: none;
-    color: var(--text); font-size: 1.5rem;
-    cursor: pointer; flex-shrink: 0; padding: 0 0.25rem;
+    color: var(--text);
+    display: flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px;
+    cursor: pointer; flex-shrink: 0;
   }
-  #mobile-player-close {
-    background: none; border: none;
-    color: var(--text-muted); font-size: 1.1rem;
-    cursor: pointer; flex-shrink: 0; padding: 0 0.25rem;
+  #mobile-player-pause svg[hidden] { display: none; }
+  body.mobile-player-active { padding-bottom: 108px; }
+
+  /* Scrubber: thin visible track, larger invisible touch target (44pt-ish hit zone) */
+  #mobile-player-progress {
+    position: relative;
+    height: 22px;
+    padding: 0 0.75rem 6px;
+    display: flex; align-items: flex-end;
+    cursor: pointer;
+    touch-action: none;
   }
-  body.mobile-player-active { padding-bottom: 80px; }
+  #mobile-player-track {
+    position: relative; width: 100%; height: 3px;
+    background: rgba(255,255,255,0.22);
+    border-radius: 2px;
+  }
+  #mobile-player-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 0%;
+    background: #fff;
+    border-radius: 2px;
+  }
 
   /* ── Toast ── */
   #spotify-toast {
-    position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
-    background: var(--surface); border: 1px solid var(--border);
+    position: fixed; bottom: 118px; left: 50%; transform: translateX(-50%);
+    background: var(--bg); border: 1px solid var(--border);
     border-radius: var(--radius); padding: 0.6rem 1rem;
     font-size: 0.82rem; color: var(--text);
     z-index: 30; white-space: nowrap;
@@ -474,6 +496,8 @@
     pointer-events: none;
   }
   #spotify-toast.visible { opacity: 1; pointer-events: auto; }
+  #spotify-toast.toast-success { border-color: var(--accent); }
+  #spotify-toast.toast-error { border-color: var(--red); }
 
   /* Mobile: hide embed iframe */
   @media (max-width: 600px) {
@@ -593,13 +617,22 @@
 </div>
 <!-- ── Mobile Spotify player bar ── -->
 <div id="mobile-player-bar">
-  <img id="mobile-player-art" src="" alt="" />
-  <div id="mobile-player-info">
-    <div id="mobile-player-title">—</div>
-    <div id="mobile-player-artist">—</div>
+  <div id="mobile-player-row">
+    <img id="mobile-player-art" src="" alt="" crossorigin="anonymous" />
+    <div id="mobile-player-info">
+      <div id="mobile-player-title">—</div>
+      <div id="mobile-player-artist">—</div>
+    </div>
+    <button id="mobile-player-pause" aria-label="Pause">
+      <svg id="mobile-player-pause-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="4" width="5" height="16" rx="1"/><rect x="14" y="4" width="5" height="16" rx="1"/></svg>
+      <svg id="mobile-player-play-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true" hidden><path d="M7 4.5v15l13-7.5z"/></svg>
+    </button>
   </div>
-  <button id="mobile-player-pause" aria-label="Pause">⏸</button>
-  <button id="mobile-player-close" aria-label="Close player">✕</button>
+  <div id="mobile-player-progress" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="1000" aria-valuenow="0" tabindex="0">
+    <div id="mobile-player-track">
+      <div id="mobile-player-fill"></div>
+    </div>
+  </div>
 </div>
 <div id="spotify-toast" role="status" aria-live="polite"></div>
 <script>
@@ -986,16 +1019,24 @@
     }
   });
   // ── Mobile Spotify Web API playback ─────────────────────────────────────
-  const mobilePlayerBar  = document.getElementById('mobile-player-bar');
-  const mobileArt        = document.getElementById('mobile-player-art');
-  const mobileTitle      = document.getElementById('mobile-player-title');
-  const mobileArtist     = document.getElementById('mobile-player-artist');
-  const mobilePauseBtn   = document.getElementById('mobile-player-pause');
-  const mobileCloseBtn   = document.getElementById('mobile-player-close');
+  const mobilePlayerBar   = document.getElementById('mobile-player-bar');
+  const mobileArt         = document.getElementById('mobile-player-art');
+  const mobileTitle       = document.getElementById('mobile-player-title');
+  const mobileArtist      = document.getElementById('mobile-player-artist');
+  const mobilePauseBtn    = document.getElementById('mobile-player-pause');
+  const mobilePauseIconEl = document.getElementById('mobile-player-pause-icon');
+  const mobilePlayIconEl  = document.getElementById('mobile-player-play-icon');
+  const mobileProgressEl  = document.getElementById('mobile-player-progress');
+  const mobileTrackEl     = document.getElementById('mobile-player-track');
+  const mobileFillEl      = document.getElementById('mobile-player-fill');
   let   mobilePollingId  = null;
   let   mobilePaused     = false;
   let   mobileCurrentUri = null;
   let   mobilePlayGen    = 0;
+  let   scrubDuration    = 0;
+  let   scrubPosition    = 0;
+  let   scrubLastSync    = 0;
+  let   isDragging       = false;
 
   function isMobile() { return window.innerWidth <= 600; }
 
@@ -1018,19 +1059,103 @@
     return null;
   }
 
-  function showToast(msg) {
+  let toastTimer = null;
+  function showToast(msg, type) {
     const el = document.getElementById('spotify-toast');
     el.textContent = msg;
+    el.classList.remove('toast-success', 'toast-error');
+    el.classList.add(type === 'success' ? 'toast-success' : 'toast-error');
     el.classList.add('visible');
-    setTimeout(() => el.classList.remove('visible'), 3000);
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('visible'), 4500);
   }
 
+  function setPauseIcon(isPlaying) {
+    mobilePauseIconEl.hidden = !isPlaying;
+    mobilePlayIconEl.hidden  = isPlaying;
+    mobilePauseBtn.setAttribute('aria-label', isPlaying ? 'Pause' : 'Play');
+  }
+
+  function setPlayerBg(imgEl) {
+    try {
+      const size = 8;
+      const canvas = document.createElement('canvas');
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgEl, 0, 0, size, size);
+      const data = ctx.getImageData(0, 0, size, size).data;
+      let r = 0, g = 0, b = 0, count = 0;
+      for (let i = 0; i < data.length; i += 4) { r += data[i]; g += data[i+1]; b += data[i+2]; count++; }
+      const darken = 0.55; // keep text/icons legible over the sampled color
+      r = Math.round((r / count) * darken);
+      g = Math.round((g / count) * darken);
+      b = Math.round((b / count) * darken);
+      mobilePlayerBar.style.setProperty('--player-bg', 'rgb(' + r + ', ' + g + ', ' + b + ')');
+    } catch (e) {
+      // Canvas read blocked (CORS, decode failure, etc.) — silently fall back to the CSS default.
+      mobilePlayerBar.style.removeProperty('--player-bg');
+    }
+  }
+
+  function resetScrubber() {
+    scrubDuration = 0;
+    scrubPosition = 0;
+    scrubLastSync = Date.now();
+    renderScrubber();
+  }
+
+  function renderScrubber() {
+    let pos = scrubPosition;
+    if (!mobilePaused && !isDragging && scrubDuration) {
+      pos = Math.min(scrubDuration, scrubPosition + (Date.now() - scrubLastSync));
+    }
+    const frac = scrubDuration ? pos / scrubDuration : 0;
+    mobileFillEl.style.width = (frac * 100) + '%';
+    mobileProgressEl.setAttribute('aria-valuenow', Math.round(frac * 1000));
+  }
+
+  (function scrubTick() {
+    if (mobilePlayerBar.classList.contains('active')) renderScrubber();
+    requestAnimationFrame(scrubTick);
+  })();
+
+  function fracFromPointerEvent(e) {
+    const rect = mobileTrackEl.getBoundingClientRect();
+    const frac = (e.clientX - rect.left) / rect.width;
+    return Math.min(1, Math.max(0, frac));
+  }
+
+  mobileProgressEl.addEventListener('pointerdown', (e) => {
+    if (!scrubDuration) return; // nothing to seek yet (duration not known this early in playback)
+    isDragging = true;
+    mobileProgressEl.setPointerCapture(e.pointerId);
+    scrubPosition = fracFromPointerEvent(e) * scrubDuration;
+    renderScrubber();
+  });
+  mobileProgressEl.addEventListener('pointermove', (e) => {
+    if (!isDragging) return;
+    scrubPosition = fracFromPointerEvent(e) * scrubDuration;
+    renderScrubber();
+  });
+  mobileProgressEl.addEventListener('pointerup', async (e) => {
+    if (!isDragging) return;
+    isDragging = false;
+    const seekMs = Math.round(scrubPosition);
+    scrubLastSync = Date.now();
+    const res = await spotifyFetch('PUT', '/me/player/seek?position_ms=' + seekMs);
+    if (res === null) showToast('Seek failed — try again');
+  });
+  mobileProgressEl.addEventListener('pointercancel', () => { isDragging = false; });
+
   function updateMobileBar(t) {
+    mobileArt.onload = () => setPlayerBg(mobileArt);
+    mobileArt.onerror = () => mobilePlayerBar.style.removeProperty('--player-bg');
     mobileArt.src    = t.albumArt || '';
     mobileTitle.textContent  = t.title || '';
     mobileArtist.textContent = t.artist || '';
-    mobilePauseBtn.textContent = '⏸';
+    setPauseIcon(true);
     mobilePaused = false;
+    resetScrubber();
     mobilePlayerBar.classList.add('active');
     document.body.classList.add('mobile-player-active');
   }
@@ -1088,19 +1213,18 @@
     });
     if (stale()) return;
     if (playRes === null) { rollback('Could not start playback — try again'); return; }
-    showToast('Play sent ✓');
     setTimeout(() => startPolling(), 5000);
   }
 
   async function mobilePause() {
     await spotifyFetch('PUT', '/me/player/pause');
-    mobilePauseBtn.textContent = '▶';
+    setPauseIcon(false);
     mobilePaused = true;
   }
 
   async function mobileResume() {
     await spotifyFetch('PUT', '/me/player/play');
-    mobilePauseBtn.textContent = '⏸';
+    setPauseIcon(true);
     mobilePaused = false;
   }
 
@@ -1110,8 +1234,16 @@
       const state = await spotifyFetch('GET', '/me/player');
       if (!state || !state.item) return;
       if (!state.is_playing && !mobilePaused) {
-        mobilePauseBtn.textContent = '▶';
+        setPauseIcon(false);
         mobilePaused = true;
+      } else if (state.is_playing && mobilePaused) {
+        setPauseIcon(true);
+        mobilePaused = false;
+      }
+      if (!isDragging) {
+        scrubDuration = state.item.duration_ms || 0;
+        scrubPosition = state.progress_ms || 0;
+        scrubLastSync = Date.now();
       }
     }, 3000);
   }
@@ -1127,12 +1259,6 @@
 
   mobilePauseBtn.addEventListener('click', () => {
     if (mobilePaused) mobileResume(); else mobilePause();
-  });
-
-  mobileCloseBtn.addEventListener('click', () => {
-    mobilePause();
-    hideMobileBar();
-    if (currentPlayingRow) { currentPlayingRow.classList.remove('now-playing'); currentPlayingRow = null; }
   });
 
   // ────────────────────────────────────────────────────────────────────────
