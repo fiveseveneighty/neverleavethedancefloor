@@ -453,7 +453,7 @@
   }
   #mobile-player-info { flex: 1; min-width: 0; }
   #mobile-player-title { font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #mobile-player-artist { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #mobile-player-artist { font-size: 0.75rem; color: rgba(255,255,255,0.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #mobile-player-pause {
     background: none; border: none;
     color: var(--text);
@@ -489,7 +489,7 @@
     padding: 0 0.75rem 0.55rem;
     margin-top: -4px;
     font-size: 0.68rem;
-    color: var(--text-muted);
+    color: rgba(255,255,255,0.85);
   }
 
   /* ── Toast ── */
@@ -1044,6 +1044,7 @@
   const mobileTimeRemainingEl = document.getElementById('mobile-player-time-remaining');
   let   mobilePollingId  = null;
   let   mobilePaused     = false;
+  let   mobileLastActionAt = 0; // guards against a stale poll reverting a just-tapped pause/resume
   let   mobileCurrentUri = null;
   let   mobilePlayGen    = 0;
   let   scrubDuration    = 0;
@@ -1241,12 +1242,14 @@
 
   async function mobilePause() {
     await spotifyFetch('PUT', '/me/player/pause');
+    mobileLastActionAt = Date.now();
     setPauseIcon(false);
     mobilePaused = true;
   }
 
   async function mobileResume() {
     await spotifyFetch('PUT', '/me/player/play');
+    mobileLastActionAt = Date.now();
     setPauseIcon(true);
     mobilePaused = false;
   }
@@ -1256,12 +1259,19 @@
     mobilePollingId = setInterval(async () => {
       const state = await spotifyFetch('GET', '/me/player');
       if (!state || !state.item) return;
-      if (!state.is_playing && !mobilePaused) {
-        setPauseIcon(false);
-        mobilePaused = true;
-      } else if (state.is_playing && mobilePaused) {
-        setPauseIcon(true);
-        mobilePaused = false;
+      // Spotify's own playback state can lag ~1-2s behind a just-sent
+      // pause/resume command. Reconciling against a stale read in that
+      // window flips the icon right back, making a just-tapped pause look
+      // like it never took effect (or a resume look ignored). Skip
+      // reconciliation for a short grace period after any local tap.
+      if (Date.now() - mobileLastActionAt > 1500) {
+        if (!state.is_playing && !mobilePaused) {
+          setPauseIcon(false);
+          mobilePaused = true;
+        } else if (state.is_playing && mobilePaused) {
+          setPauseIcon(true);
+          mobilePaused = false;
+        }
       }
       if (!isDragging) {
         scrubDuration = state.item.duration_ms || 0;
