@@ -1040,19 +1040,23 @@
     mobileCurrentUri = null;
   }
 
-  async function mobilePlay(t) {
+  async function findSmartphoneDevice() {
     const devices = await spotifyFetch('GET', '/me/player/devices');
-    if (!devices || !devices.devices || devices.devices.length === 0) {
-      showToast('Open Spotify first, then tap a track');
-      return;
+    const list = (devices && devices.devices) || [];
+    return list.find(d => d.is_active && d.type === 'Smartphone')
+        || list.find(d => d.type === 'Smartphone')
+        || null;
+  }
+
+  async function mobilePlay(t) {
+    let active = await findSmartphoneDevice();
+    if (!active) {
+      // Registration lag: Spotify can take a moment to see a just-opened app. One retry.
+      await new Promise(r => setTimeout(r, 1200));
+      active = await findSmartphoneDevice();
     }
-    const list   = devices.devices;
-    const active = list.find(d => d.is_active && d.type === 'Smartphone')
-                || list.find(d => d.type === 'Smartphone')
-                || list.find(d => d.is_active)
-                || list[0];
-    if (!active.id) {
-      showToast('Open Spotify first, then tap a track');
+    if (!active) {
+      showToast('Open Spotify on your iPhone, then tap the track again');
       return;
     }
     // If device exists but isn't active, transfer playback to wake it
