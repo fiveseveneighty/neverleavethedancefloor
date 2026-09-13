@@ -1044,7 +1044,7 @@
   const mobileTimeRemainingEl = document.getElementById('mobile-player-time-remaining');
   let   mobilePollingId  = null;
   let   mobilePaused     = false;
-  let   mobileLastActionAt = 0; // guards against a stale poll reverting a just-tapped pause/resume
+  let   mobilePendingFlip = null; // { value: bool, count } — debounces stale poll reads before trusting an external play/pause change
   let   mobileCurrentUri = null;
   let   mobilePlayGen    = 0;
   let   scrubDuration    = 0;
@@ -1242,14 +1242,14 @@
 
   async function mobilePause() {
     await spotifyFetch('PUT', '/me/player/pause');
-    mobileLastActionAt = Date.now();
+    mobilePendingFlip = null;
     setPauseIcon(false);
     mobilePaused = true;
   }
 
   async function mobileResume() {
     await spotifyFetch('PUT', '/me/player/play');
-    mobileLastActionAt = Date.now();
+    mobilePendingFlip = null;
     setPauseIcon(true);
     mobilePaused = false;
   }
@@ -1259,19 +1259,31 @@
     mobilePollingId = setInterval(async () => {
       const state = await spotifyFetch('GET', '/me/player');
       if (!state || !state.item) return;
-      // Spotify's own playback state can lag ~1-2s behind a just-sent
-      // pause/resume command. Reconciling against a stale read in that
-      // window flips the icon right back, making a just-tapped pause look
-      // like it never took effect (or a resume look ignored). Skip
-      // reconciliation for a short grace period after any local tap.
-      if (Date.now() - mobileLastActionAt > 1500) {
-        if (!state.is_playing && !mobilePaused) {
-          setPauseIcon(false);
-          mobilePaused = true;
-        } else if (state.is_playing && mobilePaused) {
-          setPauseIcon(true);
-          mobilePaused = false;
+      // Spotify's own Connect playback state can lag several seconds behind
+      // a just-sent pause/resume command (longer than one 3s poll tick in
+      // practice) — reconciling against a single stale read was flipping the
+      // icon right back, making a just-tapped pause look like it never took
+      // effect. Require the SAME opposing reading on two consecutive polls
+      // before trusting it as a real external change, rather than guessing
+      // a fixed delay. A genuinely stale read self-corrects on the next
+      // tick once Spotify catches up, so the counter resets and nothing
+      // flips; a real external pause/resume (e.g. from the Spotify app
+      // itself) still syncs within ~2 poll ticks.
+      const serverPlaying = !!state.is_playing;
+      const localPlaying  = !mobilePaused;
+      if (serverPlaying !== localPlaying) {
+        if (mobilePendingFlip && mobilePendingFlip.value === serverPlaying) {
+          mobilePendingFlip.count++;
+        } else {
+          mobilePendingFlip = { value: serverPlaying, count: 1 };
         }
+        if (mobilePendingFlip.count >= 2) {
+          setPauseIcon(serverPlaying);
+          mobilePaused = !serverPlaying;
+          mobilePendingFlip = null;
+        }
+      } else {
+        mobilePendingFlip = null;
       }
       if (!isDragging) {
         scrubDuration = state.item.duration_ms || 0;
