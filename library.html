@@ -648,6 +648,7 @@
 
   let allTracks = [];
   let filteredTracks = [];
+  let trackById = new Map();
   let savedPassword = '';
   let sortCol = 'addedAt';
   let sortDir = 'desc';
@@ -733,6 +734,7 @@
 
   function ingestData(data) {
     allTracks = data.tracks || [];
+    trackById = new Map(allTracks.map(t => [String(t.id), t]));
     const inPl = allTracks.filter(t => t.inPlaylist).length;
     statTotal.textContent = data.totalLiked ?? allTracks.length;
     statInPl.textContent  = inPl;
@@ -833,13 +835,7 @@
         <td class="td-genre">${genreTags}</td>
         <td class="td-playlist">${plHtml}</td>
       `;
-      tr.addEventListener('click', () => {
-        if (tr.classList.contains('now-playing')) {
-          if (isMobile() && getTokens()) mobilePause();
-          return;
-        }
-        loadTrack(t, tr);
-      });
+      tr.dataset.trackId = t.id;
       frag.appendChild(tr);
     });
     tbody.appendChild(frag);
@@ -854,7 +850,12 @@
     errorBanner.classList.add('visible');
   }
 
-  searchInput.addEventListener('input', applyFilters);
+  function debounce(fn, wait) {
+    let timer = null;
+    return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), wait); };
+  }
+
+  searchInput.addEventListener('input', debounce(applyFilters, 150));
   camSelect.addEventListener('change', applyFilters);
   bpmMin.addEventListener('input', applyFilters);
   bpmMax.addEventListener('input', applyFilters);
@@ -872,6 +873,17 @@
       playlistFilter = btn.dataset.pf;
       applyFilters();
     });
+  });
+
+  tbody.addEventListener('click', (e) => {
+    const tr = e.target.closest('tr');
+    if (!tr) return;
+    if (tr.classList.contains('now-playing')) {
+      if (isMobile() && getTokens()) mobilePause();
+      return;
+    }
+    const t = trackById.get(tr.dataset.trackId);
+    if (t) loadTrack(t, tr);
   });
 
   document.querySelectorAll('thead th[data-col]').forEach(th => {
