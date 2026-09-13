@@ -461,7 +461,7 @@
     width: 44px; height: 44px;
     cursor: pointer; flex-shrink: 0;
   }
-  #mobile-player-pause svg[hidden] { display: none; }
+  #mobile-player-pause svg.icon-hidden { display: none; }
   body.mobile-player-active { padding-bottom: calc(108px + env(safe-area-inset-bottom, 0px)); }
 
   /* Scrubber: thin visible track, larger invisible touch target (44pt-ish hit zone) */
@@ -632,7 +632,7 @@
     </div>
     <button id="mobile-player-pause" aria-label="Pause">
       <svg id="mobile-player-pause-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><rect x="5" y="4" width="5" height="16" rx="1"/><rect x="14" y="4" width="5" height="16" rx="1"/></svg>
-      <svg id="mobile-player-play-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true" hidden><path d="M7 4.5v15l13-7.5z"/></svg>
+      <svg id="mobile-player-play-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true" class="icon-hidden"><path d="M7 4.5v15l13-7.5z"/></svg>
     </button>
   </div>
   <div id="mobile-player-progress" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="1000" aria-valuenow="0" tabindex="0">
@@ -1085,8 +1085,8 @@
   }
 
   function setPauseIcon(isPlaying) {
-    mobilePauseIconEl.hidden = !isPlaying;
-    mobilePlayIconEl.hidden  = isPlaying;
+    mobilePauseIconEl.classList.toggle('icon-hidden', !isPlaying);
+    mobilePlayIconEl.classList.toggle('icon-hidden', isPlaying);
     mobilePauseBtn.setAttribute('aria-label', isPlaying ? 'Pause' : 'Play');
   }
 
@@ -1241,14 +1241,21 @@
   }
 
   async function mobilePause() {
-    await spotifyFetch('PUT', '/me/player/pause');
+    const res = await spotifyFetch('PUT', '/me/player/pause');
+    if (res === null) { showToast('Could not pause — try again'); return; }
     mobilePendingFlip = null;
     setPauseIcon(false);
     mobilePaused = true;
   }
 
   async function mobileResume() {
-    await spotifyFetch('PUT', '/me/player/play');
+    const active = await findSmartphoneDevice();
+    if (active && !active.is_active) {
+      await spotifyFetch('PUT', '/me/player', { device_ids: [active.id], play: false });
+      await new Promise(r => setTimeout(r, 500));
+    }
+    const res = await spotifyFetch('PUT', '/me/player/play', active ? { device_id: active.id } : undefined);
+    if (res === null) { showToast('Open Spotify on your iPhone, then tap play again'); return; }
     mobilePendingFlip = null;
     setPauseIcon(true);
     mobilePaused = false;
