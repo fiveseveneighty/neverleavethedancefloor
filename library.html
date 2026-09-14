@@ -212,6 +212,7 @@
     td.td-title { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
     td.td-bpm { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); white-space: nowrap; min-width: 48px; }
     td.td-camelot { white-space: nowrap; }
+    td.td-duration { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); white-space: nowrap; }
     td.td-genre, th[data-col='genre'] { display: none; } /* Genre hidden: Spotify /v1/artists blocked in Dev mode */
     td.td-playlist { max-width: 160px; }
 
@@ -328,6 +329,7 @@
       #filters { gap: 0.4rem; }
       .filter-group { min-width: 80px; }
       td.td-genre { display: none; }
+      td.td-duration { display: none; }
       td.td-title { max-width: 130px; }
       td.td-art, thead th.no-sort { display: none; }
     }
@@ -581,6 +583,8 @@
         <option value="bpm-desc">BPM ↓</option>
         <option value="camelot-asc">Camelot A→Z</option>
         <option value="title-asc">Title A→Z</option>
+        <option value="duration-asc">Time ↑</option>
+        <option value="duration-desc">Time ↓</option>
       </select>
     </div>
   </div>
@@ -599,6 +603,7 @@
           <th data-col="title">Title <span class="sort-arrow">↕</span></th>
           <th data-col="bpm">BPM <span class="sort-arrow">↕</span></th>
           <th data-col="camelot">Key <span class="sort-arrow">↕</span></th>
+          <th data-col="duration">Time <span class="sort-arrow">↕</span></th>
           <th data-col="genre">Genre</th>
           <th data-col="playlist">Playlist(s)</th>
         </tr>
@@ -826,6 +831,7 @@
         case 'title':   return dir * a.title.localeCompare(b.title);
         case 'bpm':     return dir * ((a.bpm ?? 0) - (b.bpm ?? 0));
         case 'camelot': return dir * camelotSortFn(a.camelot, b.camelot);
+        case 'duration': return dir * ((a.durationMs ?? 0) - (b.durationMs ?? 0));
         case 'addedAt': return dir * (new Date(a.addedAt) - new Date(b.addedAt));
         default: return 0;
       }
@@ -877,6 +883,7 @@
         <td class="td-title"  title="${escHtml(t.title)}"><span class="eq-title-icon"><span></span><span></span><span></span></span>${escHtml(t.title)}</td>
         <td class="td-bpm">${t.bpm ? Math.round(t.bpm) : '—'}</td>
         <td class="td-camelot">${camelotPill(t.camelot)}</td>
+        <td class="td-duration">${t.durationMs ? formatTime(t.durationMs) : '—'}</td>
         <td class="td-genre">${genreTags}</td>
         <td class="td-playlist">${plHtml}</td>
       `;
