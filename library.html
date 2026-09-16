@@ -150,6 +150,68 @@
     }
     .pf-btn.active { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 700; }
 
+    /* ── Camelot key filter (multi-select chip + full-width tray) ── */
+    .key-trigger {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.82rem;
+      padding: 0.38rem 0.55rem;
+      white-space: nowrap;
+    }
+    .key-trigger.on { border-color: var(--accent); color: var(--accent); }
+    .key-trigger svg { width: 10px; height: 10px; color: var(--text-faint); transition: transform 0.15s; flex-shrink: 0; }
+    .key-trigger.tray-open svg { transform: rotate(180deg); }
+    .key-count { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.72rem; color: var(--accent); }
+    #key-tray {
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      padding: 0.65rem 1rem 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+    #key-tray[hidden] { display: none; }
+    .key-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+    .key-row-label {
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.66rem; font-weight: 700; color: var(--text-faint);
+      text-transform: uppercase; letter-spacing: 0.05em;
+      width: 14px; flex: none;
+    }
+    .key-tray-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.72rem;
+      font-weight: 700;
+      line-height: 1;
+      padding: 0.22rem 0.45rem;
+      border-radius: 5px;
+      min-width: 34px;
+      letter-spacing: 0.02em;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: outline-color 0.1s;
+    }
+    .key-tray-pill.sel { outline: 2px solid var(--text); outline-offset: 1px; }
+    .tray-footer {
+      display: flex; align-items: center; gap: 12px;
+      margin-top: 2px; padding-top: 0.5rem;
+      border-top: 1px solid var(--border);
+    }
+    .tray-footer-hint { font-size: 0.72rem; color: var(--text-muted); }
+    .tray-clear {
+      background: none; border: none; color: var(--text-muted);
+      font-size: 0.7rem; cursor: pointer; padding: 0;
+      text-decoration: underline; text-underline-offset: 2px;
+    }
+    .tray-clear:hover { color: var(--text); }
+
     /* ── Table ── */
     #table-wrap {
       flex: 1;
@@ -551,9 +613,11 @@
     </div>
     <div class="filter-group">
       <label>Camelot</label>
-      <select id="cam-select">
-        <option value="">All keys</option>
-      </select>
+      <button class="key-trigger" id="key-trigger" type="button" aria-expanded="false">
+        <span id="key-trigger-label">All keys</span>
+        <span class="key-count" id="key-count" hidden></span>
+        <svg viewBox="0 0 12 8" fill="none"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </div>
     <div class="filter-group">
       <label>BPM min</label>
@@ -587,6 +651,8 @@
       </select>
     </div>
   </div>
+
+  <div id="key-tray" hidden></div>
 
   <div id="result-count"></div>
   <div id="error-banner"></div>
@@ -657,33 +723,34 @@
 
   // ── Camelot wheel color map ──────────────────────────────────────────────
   // 12 positions around the wheel, each has an A (minor) and B (major) variant.
-  // Hues progress around the color wheel; A is slightly darker/more saturated,
-  // B is lighter/more pastel to distinguish minor vs major at a glance.
+  // Colors sampled directly from Dan's harmonic compatibility chart image (Sep 16 2026),
+  // replacing the earlier saturated placeholder palette — all light/pastel enough
+  // that a single dark text color (#1a1a1a) works across every key.
   const CAMELOT_COLORS = {
-    '1A':  { bg: '#c0392b', text: '#fff' },  // red (minor)
-    '1B':  { bg: '#e74c3c', text: '#fff' },  // red (major)
-    '2A':  { bg: '#c0551a', text: '#fff' },  // red-orange (minor)
-    '2B':  { bg: '#e8621f', text: '#fff' },  // red-orange (major)
-    '3A':  { bg: '#8a6d00', text: '#fff' },  // amber (minor)
-    '3B':  { bg: '#2ea84e', text: '#fff' },  // green (major) — Spotify's 3A was green
-    '4A':  { bg: '#1a8c5a', text: '#fff' },  // green (minor)
-    '4B':  { bg: '#27ae60', text: '#fff' },  // green (major)
-    '5A':  { bg: '#148a70', text: '#fff' },  // teal (minor)
-    '5B':  { bg: '#1abc9c', text: '#000' },  // teal (major)
-    '6A':  { bg: '#0e7a8a', text: '#fff' },  // cyan (minor)
-    '6B':  { bg: '#11a5be', text: '#000' },  // cyan (major)
-    '7A':  { bg: '#1565c0', text: '#fff' },  // blue (minor)
-    '7B':  { bg: '#1e88e5', text: '#fff' },  // blue (major)
-    '8A':  { bg: '#4527a0', text: '#fff' },  // indigo (minor)
-    '8B':  { bg: '#5e35b1', text: '#fff' },  // indigo (major)
-    '9A':  { bg: '#7b2d8b', text: '#fff' },  // purple (minor)
-    '9B':  { bg: '#9c27b0', text: '#fff' },  // purple (major)
-    '10A': { bg: '#8e1a6e', text: '#fff' },  // violet-pink (minor)
-    '10B': { bg: '#ad1457', text: '#fff' },  // pink (major)
-    '11A': { bg: '#006e7a', text: '#fff' },  // Spotify teal for 11A
-    '11B': { bg: '#00838f', text: '#fff' },  // teal-cyan (major)
-    '12A': { bg: '#b71c1c', text: '#fff' },  // deep red (minor) — completes the wheel
-    '12B': { bg: '#c62828', text: '#fff' },  // deep red (major)
+    '1A':  { bg: '#79F0D2', text: '#1a1a1a' },
+    '1B':  { bg: '#19ECC9', text: '#1a1a1a' },
+    '2A':  { bg: '#95F2A1', text: '#1a1a1a' },
+    '2B':  { bg: '#38F081', text: '#1a1a1a' },
+    '3A':  { bg: '#B1F385', text: '#1a1a1a' },
+    '3B':  { bg: '#87F24C', text: '#1a1a1a' },
+    '4A':  { bg: '#E4E4A8', text: '#1a1a1a' },
+    '4B':  { bg: '#E0CB72', text: '#1a1a1a' },
+    '5A':  { bg: '#FFC5AD', text: '#1a1a1a' },
+    '5B':  { bg: '#FEA07E', text: '#1a1a1a' },
+    '6A':  { bg: '#FFB1BE', text: '#1a1a1a' },
+    '6B':  { bg: '#FF8796', text: '#1a1a1a' },
+    '7A':  { bg: '#FDB1CF', text: '#1a1a1a' },
+    '7B':  { bg: '#FF80B5', text: '#1a1a1a' },
+    '8A':  { bg: '#F0B3EF', text: '#1a1a1a' },
+    '8B':  { bg: '#EF81DA', text: '#1a1a1a' },
+    '9A':  { bg: '#E5B5FF', text: '#1a1a1a' },
+    '9B':  { bg: '#CF8FFF', text: '#1a1a1a' },
+    '10A': { bg: '#C6D1FF', text: '#1a1a1a' },
+    '10B': { bg: '#9DB8FF', text: '#1a1a1a' },
+    '11A': { bg: '#A3E7FE', text: '#1a1a1a' },
+    '11B': { bg: '#51DAFA', text: '#1a1a1a' },
+    '12A': { bg: '#5BEFEF', text: '#1a1a1a' },
+    '12B': { bg: '#19EBEC', text: '#1a1a1a' },
   };
 
   function camelotPill(key) {
@@ -691,6 +758,37 @@
     const colors = CAMELOT_COLORS[key];
     if (!colors) return `<span class="cam-pill cam-null">${escHtml(key)}</span>`;
     return `<span class="cam-pill" style="background:${colors.bg};color:${colors.text}">${escHtml(key)}</span>`;
+  }
+
+  const KEY_ORDER_A = ['1A','2A','3A','4A','5A','6A','7A','8A','9A','10A','11A','12A'];
+  const KEY_ORDER_B = ['1B','2B','3B','4B','5B','6B','7B','8B','9B','10B','11B','12B'];
+
+  function buildKeyTray() {
+    function row(list, label) {
+      const pills = list.map(k => {
+        const sel = selectedKeys.has(k);
+        const c = CAMELOT_COLORS[k];
+        return `<button class="key-tray-pill${sel ? ' sel' : ''}" data-key="${k}" style="background:${c.bg};color:${c.text}">${k}</button>`;
+      }).join('');
+      return `<div class="key-row"><span class="key-row-label">${label}</span>${pills}</div>`;
+    }
+    const n = selectedKeys.size;
+    const hint = n === 0
+      ? 'Click a key to filter · click more to multi-select'
+      : n === 1
+        ? [...selectedKeys][0] + ' selected'
+        : n + ' keys selected · table shows any match';
+    keyTray.innerHTML = row(KEY_ORDER_A, 'A') + row(KEY_ORDER_B, 'B') +
+      `<div class="tray-footer"><span class="tray-footer-hint">${hint}</span><button class="tray-clear" id="key-clear" type="button">Clear</button></div>`;
+    updateKeyTrigger();
+  }
+
+  function updateKeyTrigger() {
+    const n = selectedKeys.size;
+    keyTrigger.classList.toggle('on', n > 0);
+    keyTrigger.classList.toggle('tray-open', !keyTray.hidden);
+    keyTriggerLabel.textContent = n === 0 ? 'All keys' : n === 1 ? [...selectedKeys][0] : 'Keys';
+    if (n) { keyCount.hidden = false; keyCount.textContent = '· ' + n; } else { keyCount.hidden = true; }
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -713,7 +811,11 @@
   const statNotPl      = document.getElementById('stat-notpl');
   const refreshStatus  = document.getElementById('refresh-status');
   const searchInput    = document.getElementById('search-input');
-  const camSelect      = document.getElementById('cam-select');
+  const keyTrigger     = document.getElementById('key-trigger');
+  const keyTriggerLabel= document.getElementById('key-trigger-label');
+  const keyCount       = document.getElementById('key-count');
+  const keyTray        = document.getElementById('key-tray');
+  const selectedKeys   = new Set();
   const bpmMin         = document.getElementById('bpm-min');
   const bpmMax         = document.getElementById('bpm-max');
   const sortSelect     = document.getElementById('sort-select');
@@ -794,24 +896,16 @@
     } else {
       refreshStatus.textContent = allTracks.length ? '' : 'No data yet — click Refresh to fetch.';
     }
-    const camKeys = [...new Set(allTracks.map(t => t.camelot).filter(Boolean))].sort(camelotSortFn);
-    camSelect.innerHTML = '<option value="">All keys</option>';
-    camKeys.forEach(k => {
-      const opt = document.createElement('option');
-      opt.value = k; opt.textContent = k;
-      camSelect.appendChild(opt);
-    });
     applyFilters();
   }
 
   function applyFilters() {
     const q     = searchInput.value.trim().toLowerCase();
-    const cam   = camSelect.value;
     const bpmLo = bpmMin.value ? parseFloat(bpmMin.value) : -Infinity;
     const bpmHi = bpmMax.value ? parseFloat(bpmMax.value) : Infinity;
     filteredTracks = allTracks.filter(t => {
       if (q && !t.artist.toLowerCase().includes(q) && !t.title.toLowerCase().includes(q)) return false;
-      if (cam && t.camelot !== cam) return false;
+      if (selectedKeys.size && !selectedKeys.has(t.camelot)) return false;
       const bpm = t.bpm ?? 0;
       if (bpm < bpmLo || bpm > bpmHi) return false;
       if (playlistFilter === 'in'  && !t.inPlaylist) return false;
@@ -907,7 +1001,37 @@
   }
 
   searchInput.addEventListener('input', debounce(applyFilters, 150));
-  camSelect.addEventListener('change', applyFilters);
+  buildKeyTray();
+
+  keyTrigger.addEventListener('click', () => {
+    keyTray.hidden = !keyTray.hidden;
+    keyTrigger.setAttribute('aria-expanded', String(!keyTray.hidden));
+    updateKeyTrigger();
+  });
+
+  keyTray.addEventListener('click', (e) => {
+    const pill = e.target.closest('.key-tray-pill');
+    if (pill) {
+      const k = pill.dataset.key;
+      if (selectedKeys.has(k)) selectedKeys.delete(k); else selectedKeys.add(k);
+      buildKeyTray();
+      applyFilters();
+      return;
+    }
+    if (e.target.closest('#key-clear')) {
+      selectedKeys.clear();
+      buildKeyTray();
+      applyFilters();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (keyTray.hidden) return;
+    const path = e.composedPath ? e.composedPath() : [e.target];
+    if (path.includes(keyTray) || path.includes(keyTrigger)) return;
+    keyTray.hidden = true;
+    updateKeyTrigger();
+  });
   bpmMin.addEventListener('input', applyFilters);
   bpmMax.addEventListener('input', applyFilters);
   sortSelect.addEventListener('change', () => {
