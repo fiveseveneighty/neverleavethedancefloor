@@ -403,7 +403,7 @@
     height: 80px;
     background: #000;
     border-top: 1px solid var(--border);
-    z-index: 20;
+    z-index: 41;
     align-items: center;
   }
   #player-bar.active { display: flex; }
@@ -501,7 +501,7 @@
     background: var(--player-bg, #111);
     border-radius: 16px;
     box-shadow: 0 6px 20px rgba(0,0,0,0.45);
-    z-index: 20;
+    z-index: 41;
     overflow: hidden;
   }
   #mobile-player-bar.active { display: flex; }
@@ -528,6 +528,8 @@
   }
   #mobile-player-pause svg.icon-hidden { display: none; }
   body.mobile-player-active { padding-bottom: calc(108px + env(safe-area-inset-bottom, 0px)); }
+  body.player-active #compat-panel { padding-bottom: 80px; }
+  body.mobile-player-active #compat-panel { padding-bottom: calc(108px + env(safe-area-inset-bottom, 0px)); }
 
   /* Scrubber: thin visible track, larger invisible touch target (44pt-ish hit zone) */
   #mobile-player-progress {
@@ -563,7 +565,7 @@
     background: var(--bg); border: 1px solid var(--border);
     border-radius: var(--radius); padding: 0.6rem 1rem;
     font-size: 0.82rem; color: var(--text);
-    z-index: 30; white-space: nowrap;
+    z-index: 42; white-space: nowrap;
     opacity: 0; transition: opacity 0.2s;
     pointer-events: none;
   }
