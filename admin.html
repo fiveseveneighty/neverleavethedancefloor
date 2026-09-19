@@ -55,10 +55,22 @@
   }
   button:hover { background: rgba(232,120,156,0.15); }
   button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button + button { margin-left: 8px; }
 
-  .status { font-size: 12px; margin-top: 10px; }
+  input[type="checkbox"] { width: auto; margin: 0; accent-color: #e8789c; cursor: pointer; }
+  .checkbox-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 14px;
+  }
+  .checkbox-row label {
+    display: inline; font-size: 12px; letter-spacing: normal;
+    text-transform: none; color: #aaa; margin-bottom: 0; cursor: pointer;
+  }
+
+  .status { font-size: 12px; margin-top: 10px; min-height: 15px; }
   .status.ok { color: #6fcf97; }
   .status.err { color: #eb5757; }
+  .status.warn { color: #f2c94c; }
 
   .mix-list { max-height: 340px; overflow-y: auto; }
   .mix-row {
@@ -96,6 +108,13 @@
       <input type="url" id="apple-url" placeholder="https://music.apple.com/us/playlist/...">
 
       <button id="save-btn">Save mapping</button>
+      <button id="refresh-btn">Refresh live site</button>
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="auto-refresh-cb" checked>
+        <label for="auto-refresh-cb">Auto-refresh live site after each save</label>
+      </div>
+
       <div id="save-status" class="status"></div>
     </div>
 
@@ -109,6 +128,58 @@
 <script>
   let password = '';
   let mixes = [];
+
+  // --- status helper: shows a message, optionally auto-dismisses it.
+  // Tokened so an earlier message's dismiss timer can't clear a later,
+  // still-current message (e.g. "Saving..." -> "Saved" firing back to
+  // back).
+  let statusToken = 0;
+  function setStatus(el, text, cls, autoDismissMs) {
+    const token = ++statusToken;
+    el.textContent = text;
+    el.className = 'status' + (cls ? ' ' + cls : '');
+    if (autoDismissMs) {
+      setTimeout(() => {
+        if (statusToken === token) {
+          el.textContent = '';
+          el.className = 'status';
+        }
+      }, autoDismissMs);
+    }
+  }
+
+  // Turns a { triggered, ok, data, error } refresh result (see
+  // functions/api/admin-apple-music.js) into a short status phrase + class.
+  function describeRefresh(refresh) {
+    if (!refresh) return { text: '', cls: '' };
+    if (!refresh.triggered) {
+      return { text: 'live refresh failed to start', cls: 'err' };
+    }
+    if (refresh.data && refresh.data.skipped) {
+      return { text: 'live refresh skipped — Spotify rate-limited, will catch up on next hourly run', cls: 'warn' };
+    }
+    if (refresh.ok && refresh.data && refresh.data.success !== false) {
+      return { text: 'live site refreshed ✓', cls: 'ok' };
+    }
+    return { text: 'live refresh failed', cls: 'err' };
+  }
+
+  const AUTO_REFRESH_KEY = 'nltdf_admin_auto_refresh';
+  const autoRefreshCb = document.getElementById('auto-refresh-cb');
+  try {
+    const stored = localStorage.getItem(AUTO_REFRESH_KEY);
+    if (stored !== null) autoRefreshCb.checked = stored === '1';
+  } catch (err) {
+    // Private browsing / blocked storage — default (checked) stands.
+  }
+  autoRefreshCb.addEventListener('change', () => {
+    try {
+      localStorage.setItem(AUTO_REFRESH_KEY, autoRefreshCb.checked ? '1' : '0');
+    } catch (err) {
+      // Not persisted this time — no functional impact, just won't stick
+      // across reloads.
+    }
+  });
 
   async function fetchMixes() {
     const res = await fetch('/api/admin-apple-music?password=' + encodeURIComponent(password));
@@ -163,37 +234,71 @@
     const appleMusicUrl = document.getElementById('apple-url').value.trim();
     const statusEl = document.getElementById('save-status');
     const btn = document.getElementById('save-btn');
+    const autoRefresh = autoRefreshCb.checked;
 
     if (!mixName || !appleMusicUrl) {
-      statusEl.textContent = 'Select a mix and enter a URL.';
-      statusEl.className = 'status err';
+      setStatus(statusEl, 'Select a mix and enter a URL.', 'err', 4000);
       return;
     }
 
     btn.disabled = true;
-    statusEl.textContent = 'Saving...';
-    statusEl.className = 'status';
+    setStatus(statusEl, 'Saving...', '', null);
 
     try {
       const res = await fetch('/api/admin-apple-music', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password, mixName, appleMusicUrl }),
+        body: JSON.stringify({ password, mixName, appleMusicUrl, autoRefresh }),
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'SAVE_FAILED');
 
-      statusEl.textContent = `Saved: ${mixName} → Apple Music`;
-      statusEl.className = 'status ok';
       document.getElementById('apple-url').value = '';
 
       // Refresh the list so the badge/select update immediately.
       mixes = await fetchMixes();
       renderMixSelect();
       renderMixList();
+
+      let text = `Saved: ${mixName} → Apple Music`;
+      let cls = 'ok';
+      if (autoRefresh) {
+        const r = describeRefresh(data.refresh);
+        if (r.text) {
+          text += ' · ' + r.text;
+          // A rate-limit skip isn't a failure of the save — keep it 'warn',
+          // not 'err', so it doesn't read as something going wrong.
+          if (r.cls) cls = r.cls;
+        }
+      }
+      setStatus(statusEl, text, cls, 4500);
     } catch (err) {
-      statusEl.textContent = 'Save failed: ' + err.message;
-      statusEl.className = 'status err';
+      setStatus(statusEl, 'Save failed: ' + err.message, 'err', 5000);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('refresh-btn').addEventListener('click', async () => {
+    const statusEl = document.getElementById('save-status');
+    const btn = document.getElementById('refresh-btn');
+
+    btn.disabled = true;
+    setStatus(statusEl, 'Refreshing live site...', '', null);
+
+    try {
+      const res = await fetch('/api/admin-apple-music', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, action: 'refresh' }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'REFRESH_FAILED');
+
+      const r = describeRefresh(data.refresh);
+      setStatus(statusEl, r.text || 'Refresh sent.', r.cls || 'ok', 4500);
+    } catch (err) {
+      setStatus(statusEl, 'Refresh failed: ' + err.message, 'err', 5000);
     } finally {
       btn.disabled = false;
     }
