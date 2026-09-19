@@ -618,6 +618,13 @@
     #compat-panel[hidden] { display: none; }
     @media (max-width: 600px) {
       #compat-panel { width: 100%; }
+      /* iOS WebKit (Safari and every iOS browser, incl. Chrome, is
+         WebKit under the hood) auto-zooms the page on focusing any
+         input with a computed font-size under 16px. .bpm-input is
+         0.82rem (~13px) on desktop, which is fine there, but on mobile
+         that triggers the zoom -- bump it to the 16px floor here so
+         tapping a BPM field doesn't force a pinch-back-out. */
+      .bpm-input { font-size: 16px; }
     }
 
     .compat-panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
@@ -861,9 +868,9 @@
       <div class="compat-ctrl-row">
         <span class="compat-ctrl-label">BPM band</span>
         <div class="bpm-range">
-          <input type="number" class="bpm-input" id="compat-bpm-lo" inputmode="numeric" aria-label="Minimum BPM">
+          <input type="number" class="bpm-input" id="compat-bpm-lo" inputmode="numeric" autocomplete="off" aria-label="Minimum BPM">
           <span class="bpm-range-sep">–</span>
-          <input type="number" class="bpm-input" id="compat-bpm-hi" inputmode="numeric" aria-label="Maximum BPM">
+          <input type="number" class="bpm-input" id="compat-bpm-hi" inputmode="numeric" autocomplete="off" aria-label="Maximum BPM">
         </div>
       </div>
       <div class="compat-ctrl-row">
