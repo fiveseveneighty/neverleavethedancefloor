@@ -138,6 +138,25 @@
   let password = '';
   let mixes = [];
 
+  const PW_STORAGE_KEY = 'nltdf_admin_pw';
+
+  function tryStoredPassword() {
+    let stored;
+    try { stored = sessionStorage.getItem(PW_STORAGE_KEY); } catch(e) {}
+    if (!stored) return;
+    password = stored;
+    fetchMixes().then(m => {
+      mixes = m;
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('main').style.display = 'block';
+      renderMixSelect();
+      renderMixList();
+    }).catch(() => {
+      password = '';
+      try { sessionStorage.removeItem(PW_STORAGE_KEY); } catch(e) {}
+    });
+  }
+
   // --- status helper: shows a message, optionally auto-dismisses it.
   // Tokened so an earlier message's dismiss timer can't clear a later,
   // still-current message (e.g. "Saving..." -> "Saved" firing back to
@@ -240,6 +259,7 @@
     statusEl.className = 'status';
     try {
       mixes = await fetchMixes();
+      try { sessionStorage.setItem(PW_STORAGE_KEY, password); } catch(e) {}
       document.getElementById('gate').style.display = 'none';
       document.getElementById('main').style.display = 'block';
       renderMixSelect();
@@ -329,6 +349,8 @@
   document.getElementById('pw').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('unlock-btn').click();
   });
+
+  tryStoredPassword();
 </script>
 </body>
 </html>

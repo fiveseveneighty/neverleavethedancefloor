@@ -146,6 +146,24 @@
   let password = '';
   let candidates = [];
 
+  const PW_STORAGE_KEY = 'nltdf_admin_pw';
+
+  function tryStoredPassword() {
+    let stored;
+    try { stored = sessionStorage.getItem(PW_STORAGE_KEY); } catch(e) {}
+    if (!stored) return;
+    password = stored;
+    fetchCandidates().then(c => {
+      candidates = c;
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('main').style.display = 'block';
+      render();
+    }).catch(() => {
+      password = '';
+      try { sessionStorage.removeItem(PW_STORAGE_KEY); } catch(e) {}
+    });
+  }
+
   const FLAG_LABELS = {
     conflict: { label: 'Date conflict', cls: 'warn' },
     owned: { label: 'Already have a ticket', cls: 'good' },
@@ -358,6 +376,7 @@
     statusEl.className = 'status';
     try {
       candidates = await fetchCandidates();
+      try { sessionStorage.setItem(PW_STORAGE_KEY, password); } catch(e) {}
       document.getElementById('gate').style.display = 'none';
       document.getElementById('main').style.display = 'block';
       render();
@@ -370,6 +389,8 @@
   document.getElementById('pw').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('unlock-btn').click();
   });
+
+  tryStoredPassword();
 </script>
 </body>
 </html>
