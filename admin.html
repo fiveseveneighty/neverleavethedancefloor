@@ -67,6 +67,14 @@
     text-transform: none; color: #aaa; margin-bottom: 0; cursor: pointer;
   }
 
+  button.secondary {
+    color: #999;
+    border-color: rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.03);
+  }
+  button.secondary:hover { background: rgba(255,255,255,0.08); }
+  #refresh-btn { margin-top: 10px; }
+
   .status { font-size: 12px; margin-top: 10px; min-height: 15px; }
   .status.ok { color: #6fcf97; }
   .status.err { color: #eb5757; }
@@ -108,12 +116,13 @@
       <input type="url" id="apple-url" placeholder="https://music.apple.com/us/playlist/...">
 
       <button id="save-btn">Save mapping</button>
-      <button id="refresh-btn">Refresh live site</button>
 
       <div class="checkbox-row">
         <input type="checkbox" id="auto-refresh-cb" checked>
         <label for="auto-refresh-cb">Auto-refresh live site after each save</label>
       </div>
+
+      <button id="refresh-btn" class="secondary" style="display:none;">Refresh live site</button>
 
       <div id="save-status" class="status"></div>
     </div>
@@ -166,12 +175,23 @@
 
   const AUTO_REFRESH_KEY = 'nltdf_admin_auto_refresh';
   const autoRefreshCb = document.getElementById('auto-refresh-cb');
+  const refreshBtn = document.getElementById('refresh-btn');
+
+  function updateRefreshBtnVisibility() {
+    // Hidden while auto-refresh is on — it's already handled on save, so
+    // showing it then would look like a required extra step. Only appears
+    // once auto-refresh is turned off (e.g. batching several saves before
+    // pushing one refresh at the end).
+    refreshBtn.style.display = autoRefreshCb.checked ? 'none' : 'inline-block';
+  }
+
   try {
     const stored = localStorage.getItem(AUTO_REFRESH_KEY);
     if (stored !== null) autoRefreshCb.checked = stored === '1';
   } catch (err) {
     // Private browsing / blocked storage — default (checked) stands.
   }
+  updateRefreshBtnVisibility();
   autoRefreshCb.addEventListener('change', () => {
     try {
       localStorage.setItem(AUTO_REFRESH_KEY, autoRefreshCb.checked ? '1' : '0');
@@ -179,6 +199,7 @@
       // Not persisted this time — no functional impact, just won't stick
       // across reloads.
     }
+    updateRefreshBtnVisibility();
   });
 
   async function fetchMixes() {
