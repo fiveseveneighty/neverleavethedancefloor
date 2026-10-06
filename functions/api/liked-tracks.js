@@ -40,13 +40,41 @@ const MANUAL_OVERRIDES = {
   // own Camelot badge (seen in the iOS app's playlist editor) shows 3B
   // (Db major) for the same track. Corrected Sep 16 2026 MT.
   '0rln7cFteLIh27eT02rr6q': { camelot: '3B' },
+
+  // "Paradise" -- Cloonee, Chris Lake, Aliyah's Interlude. Brand-new release
+  // not yet in FreqBlog. Key/BPM from Beatport (Ab major = 4B, 130 BPM).
+  // Spotify shows 4A (Ab minor) -- Dan's rule: Beatport wins over Spotify
+  // for key. Added Oct 6 2026 MT.
+  '4TCzyYDyqYbLlNC1Z8Ewiu': { bpm: 130, camelot: '4B' },
+
+  // "Kill The Noise (Interlude)" -- Cloonee, Harvey Whyte. Same situation;
+  // Beatport 128 BPM, C minor = 5A (Spotify agrees). Added Oct 6 2026 MT.
+  '0a9j1enjxmEuEZy6B6NDng': { bpm: 128, camelot: '5A' },
+};
+
+// Stopgap values used ONLY while the track's own field is still null --
+// unlike MANUAL_OVERRIDES above, these never win over real data. Once the
+// liked-refresher Worker backfills the field from FreqBlog, the real value
+// shows through and the entry here is ignored (safe to delete later).
+// durationMs values are rounded to the second, read from Spotify's app.
+const MANUAL_FALLBACKS = {
+  '4TCzyYDyqYbLlNC1Z8Ewiu': { durationMs: 164000 }, // Paradise, 2:44
+  '0a9j1enjxmEuEZy6B6NDng': { durationMs: 138000 }, // Kill The Noise (Interlude), 2:18
 };
 
 function applyManualOverrides(tracks) {
   if (!Array.isArray(tracks)) return tracks;
   return tracks.map((t) => {
     const override = MANUAL_OVERRIDES[t.id];
-    return override ? { ...t, ...override } : t;
+    const fallback = MANUAL_FALLBACKS[t.id];
+    let out = t;
+    if (fallback) {
+      out = { ...out };
+      for (const [k, v] of Object.entries(fallback)) {
+        if (out[k] == null) out[k] = v;
+      }
+    }
+    return override ? { ...out, ...override } : out;
   });
 }
 
