@@ -578,6 +578,79 @@
     #embed-container { display: none; }
   }
 
+    /* -- Stand-in key editor (B-26) -- */
+    /* Editable pills are <button>s; reset UA button styling so they
+       match the <span> pills exactly. */
+    button.cam-pill { -webkit-appearance: none; appearance: none; margin: 0; border: 1px solid transparent; }
+    button.cam-pill.cam-null { border-color: var(--border); }
+    .cam-edit { cursor: pointer; }
+    .cam-edit.cam-null:hover, .cam-edit.cam-null:focus-visible { border-color: var(--accent); color: var(--accent); }
+    /* Provisional key (stand-in, not FreqBlog): dashed ring around the
+       whole pill. Never a one-side accent bar. */
+    .cam-provisional { outline: 1.5px dashed var(--text-muted); outline-offset: 2px; }
+
+    #keyedit-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 43;
+    }
+    #keyedit-backdrop[hidden] { display: none; }
+    #keyedit-sheet {
+      position: fixed; left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      width: 380px; max-width: calc(100% - 32px);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 20px 50px -20px rgba(0,0,0,0.7);
+      z-index: 44;
+      padding: 1rem 1rem 1.1rem;
+    }
+    #keyedit-sheet[hidden] { display: none; }
+    @media (max-width: 600px) {
+      #keyedit-sheet {
+        left: 0; right: 0; top: auto; bottom: 0;
+        transform: none;
+        width: 100%; max-width: 100%;
+        border-radius: 14px 14px 0 0;
+        border-bottom: none;
+        padding-bottom: calc(1.1rem + env(safe-area-inset-bottom, 0px));
+      }
+    }
+    .keyedit-title { font-size: 0.92rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .keyedit-artist { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .keyedit-note { font-size: 0.74rem; color: var(--text-faint); margin: 0.5rem 0 0.85rem; }
+    #keyedit-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+    .keyedit-key {
+      -webkit-appearance: none; appearance: none;
+      border: none; border-radius: 6px; margin: 0;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.78rem; font-weight: 700; line-height: 1;
+      padding: 0.6rem 0;
+      cursor: pointer;
+    }
+    /* Selected key: a ring around the whole pill (gap in page bg, then text color). */
+    .keyedit-key.sel { box-shadow: 0 0 0 2px var(--surface2), 0 0 0 4px var(--text); }
+    .keyedit-bpm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 1rem; }
+    /* 16px avoids iOS focus auto-zoom; ID+class so it can't lose to .bpm-input on source order. */
+    #keyedit-sheet .bpm-input { font-size: 16px; width: 96px; }
+    #keyedit-error { color: var(--red); font-size: 0.78rem; margin-top: 0.7rem; }
+    #keyedit-error[hidden] { display: none; }
+    .keyedit-actions { display: flex; align-items: center; gap: 8px; margin-top: 1rem; }
+    .keyedit-spacer { flex: 1; }
+    .keyedit-btn {
+      font-family: inherit; font-size: 0.85rem; font-weight: 600;
+      padding: 0.55rem 1rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .keyedit-btn[hidden] { display: none; }
+    .keyedit-btn:disabled { opacity: 0.4; cursor: default; }
+    .keyedit-save { background: var(--accent); border-color: var(--accent); color: #0a0a0a; }
+
     /* -- Compatibility Mode -- */
     .find-btn {
       width: 26px; height: 26px;
@@ -889,6 +962,29 @@
   </div>
   <div id="compat-tiers"></div>
 </div>
+<div id="keyedit-backdrop" hidden></div>
+<div id="keyedit-sheet" role="dialog" aria-modal="true" aria-labelledby="keyedit-heading" hidden>
+  <div class="compat-panel-head">
+    <span class="compat-panel-title" id="keyedit-heading">Stand-in key</span>
+    <button class="compat-close-btn" id="keyedit-close" aria-label="Close">
+      <svg viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div id="keyedit-track"></div>
+  <div class="keyedit-note">Used until FreqBlog has data for this track.</div>
+  <div id="keyedit-grid" role="radiogroup" aria-label="Camelot key"></div>
+  <div class="keyedit-bpm-row">
+    <label class="compat-ctrl-label" for="keyedit-bpm">BPM</label>
+    <input type="number" class="bpm-input" id="keyedit-bpm" inputmode="decimal" autocomplete="off" min="60" max="200" step="0.1" placeholder="e.g. 124">
+  </div>
+  <div id="keyedit-error" role="alert" hidden></div>
+  <div class="keyedit-actions">
+    <button type="button" class="keyedit-btn" id="keyedit-clear">Clear</button>
+    <span class="keyedit-spacer"></span>
+    <button type="button" class="keyedit-btn" id="keyedit-cancel">Cancel</button>
+    <button type="button" class="keyedit-btn keyedit-save" id="keyedit-save" disabled>Save</button>
+  </div>
+</div>
 <script>
   const API_ENDPOINT   = '/api/liked-tracks';
   const WORKER_URL     = 'https://nltdf-liked-refresher.dansaltzmandesign.workers.dev/';
@@ -926,11 +1022,21 @@
     '12B': { bg: '#19EBEC', text: '#1a1a1a' },
   };
 
-  function camelotPill(key) {
-    if (!key) return '<span class="cam-pill cam-null">—</span>';
-    const colors = CAMELOT_COLORS[key];
-    if (!colors) return `<span class="cam-pill cam-null">${escHtml(key)}</span>`;
-    return `<span class="cam-pill" style="background:${colors.bg};color:${colors.text}">${escHtml(key)}</span>`;
+  // t (optional): the track, used to show the provisional (stand-in) style.
+  // editable: render as a button that opens the stand-in key editor (B-26),
+  // but only when the key is empty or provisional -- FreqBlog keys stay fixed.
+  function camelotPill(key, t, editable) {
+    const prov = !!(key && t && Array.isArray(t.provisional) && t.provisional.includes('camelot'));
+    const canEdit = !!(editable && t && (!key || prov));
+    const colors = key ? CAMELOT_COLORS[key] : null;
+    const cls = 'cam-pill' + (colors ? '' : ' cam-null') + (prov ? ' cam-provisional' : '') + (canEdit ? ' cam-edit' : '');
+    const style = colors ? ` style="background:${colors.bg};color:${colors.text}"` : '';
+    const label = key ? escHtml(key) : '—';
+    if (canEdit) {
+      const tip = key ? 'Stand-in key — tap to change' : 'No key yet — tap to set a stand-in';
+      return `<button type="button" class="${cls}"${style} data-edit-key="${escHtml(t.id)}" aria-label="${tip}" title="${tip}">${label}</button>`;
+    }
+    return `<span class="${cls}"${style}>${label}</span>`;
   }
 
   const KEY_ORDER_A = ['1A','2A','3A','4A','5A','6A','7A','8A','9A','10A','11A','12A'];
@@ -1148,7 +1254,7 @@
         <td class="td-artist" title="${escHtml(t.artist)}">${escHtml(t.artist)}</td>
         <td class="td-title"  title="${escHtml(t.title)}"><span class="eq-title-icon"><span></span><span></span><span></span></span>${escHtml(t.title)}</td>
         <td class="td-bpm">${t.bpm ? Math.round(t.bpm) : '—'}</td>
-        <td class="td-camelot">${camelotPill(t.camelot)}<button class="find-btn" data-find="${t.id}" aria-label="Find compatible tracks" title="Find compatible tracks"><svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.4" stroke="currentColor" stroke-width="1.5"/><path d="M8 5.6l1.1 2.3 2.3 1.1-2.3 1.1L8 12.4l-1.1-2.3-2.3-1.1 2.3-1.1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></button></td>
+        <td class="td-camelot">${camelotPill(t.camelot, t, true)}<button class="find-btn" data-find="${t.id}" aria-label="Find compatible tracks" title="Find compatible tracks"><svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.4" stroke="currentColor" stroke-width="1.5"/><path d="M8 5.6l1.1 2.3 2.3 1.1-2.3 1.1L8 12.4l-1.1-2.3-2.3-1.1 2.3-1.1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></button></td>
         <td class="td-duration">${t.durationMs ? formatTime(t.durationMs) : '—'}</td>
         <td class="td-genre">${genreTags}</td>
         <td class="td-playlist">${plHtml}</td>
@@ -1224,6 +1330,8 @@
   });
 
   tbody.addEventListener('click', (e) => {
+    const editPill = e.target.closest('[data-edit-key]');
+    if (editPill) { keyeditOpen(editPill.dataset.editKey); return; }
     const findBtn = e.target.closest('.find-btn');
     if (findBtn) { compatOpen(findBtn.dataset.find); return; }
     const tr = e.target.closest('tr');
@@ -1296,7 +1404,7 @@
         <div class="compat-row-artist">${escHtml(t.artist)}</div>
       </div>
       <div class="compat-row-eq"><span></span><span></span><span></span></div>
-      <div class="compat-row-meta"><span>${t.bpm ? Math.round(t.bpm) : '—'}</span>${camelotPill(t.camelot)}</div>
+      <div class="compat-row-meta"><span>${t.bpm ? Math.round(t.bpm) : '—'}</span>${camelotPill(t.camelot, t, false)}</div>
     </div>`;
   }
 
@@ -1388,6 +1496,132 @@
   }
   compatBpmLo.addEventListener('change', compatBpmChange);
   compatBpmHi.addEventListener('change', compatBpmChange);
+
+  /* ---------------- Stand-in key editor (B-26) ---------------- */
+  // Saves a provisional key/BPM via POST /api/liked-tracks; the server keeps
+  // it in its own KV key and only uses it while FreqBlog's value is null.
+  const KEYEDIT_ORDER = Array.from({ length: 12 }, (_, i) => `${i + 1}A`)
+    .concat(Array.from({ length: 12 }, (_, i) => `${i + 1}B`));
+  const KEYEDIT_ERRORS = {
+    HAS_FREQBLOG_DATA: 'FreqBlog already has data for this track — reload to see it.',
+    BAD_CAMELOT: 'Pick a key first.',
+    BAD_BPM: 'BPM must be between 60 and 200.',
+    UNKNOWN_TRACK: 'Track not found — reload and try again.',
+  };
+  const keyeditBackdrop = document.getElementById('keyedit-backdrop');
+  const keyeditSheet    = document.getElementById('keyedit-sheet');
+  const keyeditTrackEl  = document.getElementById('keyedit-track');
+  const keyeditGrid     = document.getElementById('keyedit-grid');
+  const keyeditBpm      = document.getElementById('keyedit-bpm');
+  const keyeditErr      = document.getElementById('keyedit-error');
+  const keyeditSave     = document.getElementById('keyedit-save');
+  const keyeditClear    = document.getElementById('keyedit-clear');
+  const keyeditState = { id: null, key: null, busy: false };
+
+  function keyeditRenderGrid() {
+    keyeditGrid.innerHTML = KEYEDIT_ORDER.map(k => {
+      const c = CAMELOT_COLORS[k];
+      const sel = k === keyeditState.key;
+      return `<button type="button" class="keyedit-key${sel ? ' sel' : ''}" role="radio" aria-checked="${sel}" data-key="${k}" style="background:${c.bg};color:${c.text}">${k}</button>`;
+    }).join('');
+    keyeditSave.disabled = !keyeditState.key || keyeditState.busy;
+  }
+  function keyeditShowError(msg) { keyeditErr.textContent = msg; keyeditErr.hidden = false; }
+
+  function keyeditOpen(id) {
+    const t = trackById.get(String(id));
+    if (!t) return;
+    keyeditState.id = String(id);
+    keyeditState.key = t.camelot || null;
+    keyeditState.busy = false;
+    keyeditTrackEl.innerHTML = `<div class="keyedit-title">${escHtml(t.title)}</div><div class="keyedit-artist">${escHtml(t.artist)}</div>`;
+    keyeditBpm.value = t.bpm ? Math.round(t.bpm * 10) / 10 : '';
+    keyeditClear.hidden = !(Array.isArray(t.provisional) && t.provisional.length);
+    keyeditClear.disabled = false;
+    keyeditErr.hidden = true;
+    keyeditRenderGrid();
+    keyeditBackdrop.hidden = false;
+    keyeditSheet.hidden = false;
+  }
+  function keyeditClose() {
+    keyeditBackdrop.hidden = true;
+    keyeditSheet.hidden = true;
+    keyeditState.id = null;
+  }
+
+  // Update the one track object (shared by allTracks/filteredTracks/trackById)
+  // and patch its row in place, so playback state and scroll aren't disturbed.
+  function keyeditApplyTrack(nt) {
+    const t = trackById.get(String(nt.id));
+    if (!t) return;
+    t.camelot = nt.camelot ?? null;
+    t.bpm = nt.bpm ?? null;
+    if (Array.isArray(nt.provisional) && nt.provisional.length) t.provisional = nt.provisional;
+    else delete t.provisional;
+    const tr = tbody.querySelector(`tr[data-track-id="${CSS.escape(String(t.id))}"]`);
+    if (tr) {
+      tr.querySelector('.td-bpm').textContent = t.bpm ? Math.round(t.bpm) : '—';
+      const pill = tr.querySelector('.td-camelot .cam-pill');
+      if (pill) pill.outerHTML = camelotPill(t.camelot, t, true);
+    }
+  }
+
+  async function keyeditSubmit(clear) {
+    if (keyeditState.busy || !keyeditState.id) return;
+    const payload = { password: savedPassword, id: keyeditState.id };
+    if (clear) {
+      payload.clear = true;
+    } else {
+      if (!keyeditState.key) return;
+      payload.camelot = keyeditState.key;
+      const b = keyeditBpm.value.trim();
+      if (b) {
+        const n = Number(b);
+        if (!Number.isFinite(n) || n < 60 || n > 200) { keyeditShowError(KEYEDIT_ERRORS.BAD_BPM); return; }
+        payload.bpm = n;
+      }
+    }
+    keyeditState.busy = true;
+    keyeditSave.disabled = true;
+    keyeditClear.disabled = true;
+    keyeditErr.hidden = true;
+    try {
+      const r = await fetch(API_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (r.status === 401) { sessionStorage.removeItem(PW_STORAGE_KEY); location.reload(); return; }
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok || !data.track) throw new Error(KEYEDIT_ERRORS[data.error] || `Save failed (${r.status}) — try again.`);
+      keyeditApplyTrack(data.track);
+      keyeditClose();
+      showToast(clear ? 'Stand-in cleared' : `Saved ${payload.camelot}`, 'success');
+    } catch (err) {
+      keyeditShowError(err.message || 'Save failed — try again.');
+    } finally {
+      keyeditState.busy = false;
+      keyeditSave.disabled = !keyeditState.key;
+      keyeditClear.disabled = false;
+    }
+  }
+
+  keyeditGrid.addEventListener('click', (e) => {
+    const b = e.target.closest('.keyedit-key');
+    if (!b || keyeditState.busy) return;
+    keyeditState.key = b.dataset.key;
+    keyeditErr.hidden = true;
+    keyeditRenderGrid();
+  });
+  keyeditSave.addEventListener('click', () => keyeditSubmit(false));
+  keyeditClear.addEventListener('click', () => keyeditSubmit(true));
+  document.getElementById('keyedit-cancel').addEventListener('click', keyeditClose);
+  document.getElementById('keyedit-close').addEventListener('click', keyeditClose);
+  keyeditBackdrop.addEventListener('click', keyeditClose);
+  keyeditBpm.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); keyeditSubmit(false); } });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !keyeditSheet.hidden) keyeditClose();
+  });
 
   document.querySelectorAll('thead th[data-col]').forEach(th => {
     th.addEventListener('click', () => {

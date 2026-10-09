@@ -76,15 +76,6 @@ const MANUAL_OVERRIDES = {
 const MANUAL_FALLBACKS = {
   '4TCzyYDyqYbLlNC1Z8Ewiu': { durationMs: 164000 }, // Paradise, 2:44
   '0a9j1enjxmEuEZy6B6NDng': { durationMs: 138000 }, // Kill The Noise (Interlude), 2:18
-
-  // Spotify-sourced stopgaps for tracks FreqBlog hasn't catalogued yet
-  // (bpm/key/duration read from Spotify's playlist editor, Oct 6 2026 MT;
-  // Dan approved using them until FreqBlog matches arrive). Not verified
-  // against Beatport -- if Beatport disagrees on key, Beatport wins and the
-  // track should move to MANUAL_OVERRIDES.
-  '09D3DIavfXvgwzaI0vXXVP': { bpm: 136, camelot: '5A', durationMs: 180000 }, // Orbit -- Archie Ward, 3:00
-  '4Lsm44vCxTh94wv3P91Y5o': { bpm: 125, camelot: '3A', durationMs: 205000 }, // Domino (Ares Carter Remix) -- Oxia, 3:25
-  '1AHldgWALv2PLPOLhxyTlM': { bpm: 146, camelot: '1B', durationMs: 203000 }, // Balearic Temptation -- SUPERSTRINGS, 3:23
 };
 
 // Priority per field: MANUAL_OVERRIDES > FreqBlog (the KV value) >
