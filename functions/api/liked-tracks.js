@@ -7,6 +7,11 @@
 // param, validated against the ADMIN_PASSWORD env var (same password used
 // by admin.html and admin-events.html — no new credential to manage).
 //
+// POST (added Oct 8 2026 MT, backlog B-26) saves a stand-in key/BPM that Dan
+// picks in library.html for a track FreqBlog hasn't catalogued yet. Stored in
+// its own KV key (USER_FALLBACKS_KV_KEY), never in liked-tracks-data, so the
+// Worker's daily overwrite can't touch it.
+//
 // This function NEVER calls Spotify. It reads only from the LIKED_TRACKS
 // KV namespace, which the separate nltdf-liked-refresher Worker populates
 // on its daily cron schedule. Visitor load on /library.html therefore
@@ -20,6 +25,17 @@
 //                  (same namespace the nltdf-liked-refresher Worker writes to)
 
 const LIKED_TRACKS_KV_KEY = 'liked-tracks-data';
+const USER_FALLBACKS_KV_KEY = 'liked-tracks-user-fallbacks';
+
+// The 24 valid Camelot codes: 1A..12A, 1B..12B.
+const CAMELOT_KEYS = new Set(
+  Array.from({ length: 12 }, (_, i) => [`${i + 1}A`, `${i + 1}B`]).flat()
+);
+
+// Fields that get flagged as `provisional` on a track when a stand-in value
+// (user or code fallback) filled them instead of FreqBlog. library.html uses
+// the flag to style the key pill and make it editable.
+const PROVISIONAL_FIELDS = ['camelot', 'bpm'];
 
 // Manual data-quality overrides for individual tracks.
 //
@@ -71,20 +87,48 @@ const MANUAL_FALLBACKS = {
   '1AHldgWALv2PLPOLhxyTlM': { bpm: 146, camelot: '1B', durationMs: 203000 }, // Balearic Temptation -- SUPERSTRINGS, 3:23
 };
 
-function applyManualOverrides(tracks) {
+// Priority per field: MANUAL_OVERRIDES > FreqBlog (the KV value) >
+// user fallbacks (set from library.html) > MANUAL_FALLBACKS (code).
+// Fallbacks of either kind only fill a field that is still null.
+function applyManualOverrides(tracks, userFallbacks = {}) {
   if (!Array.isArray(tracks)) return tracks;
   return tracks.map((t) => {
     const override = MANUAL_OVERRIDES[t.id];
-    const fallback = MANUAL_FALLBACKS[t.id];
-    let out = t;
-    if (fallback) {
-      out = { ...out };
-      for (const [k, v] of Object.entries(fallback)) {
-        if (out[k] == null) out[k] = v;
+    const userFb = userFallbacks[t.id];
+    const codeFb = MANUAL_FALLBACKS[t.id];
+    if (!override && !userFb && !codeFb) return t;
+    let out = { ...t };
+    const provisional = [];
+    for (const fb of [userFb, codeFb]) {
+      if (!fb) continue;
+      for (const [k, v] of Object.entries(fb)) {
+        if (k === 'setAt' || v == null) continue;
+        if (out[k] == null) {
+          out[k] = v;
+          if (PROVISIONAL_FIELDS.includes(k)) provisional.push(k);
+        }
       }
     }
-    return override ? { ...out, ...override } : out;
+    if (override) {
+      out = { ...out, ...override };
+      // A hard override is a deliberate correction, not a stand-in.
+      for (const k of Object.keys(override)) {
+        const i = provisional.indexOf(k);
+        if (i !== -1) provisional.splice(i, 1);
+      }
+    }
+    if (provisional.length) out.provisional = provisional;
+    return out;
   });
+}
+
+async function readUserFallbacks(env) {
+  try {
+    const fb = await env.LIKED_TRACKS.get(USER_FALLBACKS_KV_KEY, 'json');
+    return fb && typeof fb === 'object' ? fb : {};
+  } catch {
+    return {}; // never let a bad fallbacks blob break the library page
+  }
 }
 
 export async function onRequestGet(context) {
@@ -103,17 +147,79 @@ export async function onRequestGet(context) {
   }
 
   try {
-    const raw = await env.LIKED_TRACKS.get(LIKED_TRACKS_KV_KEY);
+    const [raw, userFallbacks] = await Promise.all([
+      env.LIKED_TRACKS.get(LIKED_TRACKS_KV_KEY),
+      readUserFallbacks(env),
+    ]);
     if (!raw) {
       return jsonResponse({ tracks: [], savedAt: null, totalLiked: 0 });
     }
     const data = JSON.parse(raw);
     if (data && Array.isArray(data.tracks)) {
-      data.tracks = applyManualOverrides(data.tracks);
+      data.tracks = applyManualOverrides(data.tracks, userFallbacks);
     }
     return jsonResponse(data);
   } catch (err) {
     return jsonResponse({ error: 'FETCH_FAILED', message: String(err && err.message || err) }, 502);
+  }
+}
+
+// POST /api/liked-tracks — save or clear a stand-in key/BPM for one track.
+// Body: { password, id, camelot, bpm? }  or  { password, id, clear: true }
+// Returns { ok: true, track } with the track as GET would now serve it.
+export async function onRequestPost(context) {
+  const { env, request } = context;
+
+  if (!env.ADMIN_PASSWORD) return jsonResponse({ error: 'MISSING_CONFIG' }, 500);
+  if (!env.LIKED_TRACKS) return jsonResponse({ error: 'MISSING_KV_BINDING' }, 500);
+
+  let body;
+  try { body = await request.json(); } catch { return jsonResponse({ error: 'BAD_JSON' }, 400); }
+  if (!body || !body.password || body.password !== env.ADMIN_PASSWORD) {
+    return jsonResponse({ error: 'UNAUTHORIZED' }, 401);
+  }
+
+  const id = typeof body.id === 'string' ? body.id : '';
+  if (!/^[A-Za-z0-9]{22}$/.test(id)) return jsonResponse({ error: 'BAD_ID' }, 400);
+
+  const clear = body.clear === true;
+  let camelot = null;
+  let bpm = null;
+  if (!clear) {
+    camelot = typeof body.camelot === 'string' ? body.camelot.trim().toUpperCase() : '';
+    if (!CAMELOT_KEYS.has(camelot)) return jsonResponse({ error: 'BAD_CAMELOT' }, 400);
+    if (body.bpm != null && body.bpm !== '') {
+      bpm = Number(body.bpm);
+      if (!Number.isFinite(bpm) || bpm < 60 || bpm > 200) return jsonResponse({ error: 'BAD_BPM' }, 400);
+      bpm = Math.round(bpm * 10) / 10;
+    }
+  }
+
+  try {
+    const [raw, fallbacks] = await Promise.all([
+      env.LIKED_TRACKS.get(LIKED_TRACKS_KV_KEY),
+      readUserFallbacks(env),
+    ]);
+    const data = raw ? JSON.parse(raw) : null;
+    const track = data && Array.isArray(data.tracks) ? data.tracks.find((t) => t.id === id) : null;
+    if (!track) return jsonResponse({ error: 'UNKNOWN_TRACK' }, 404);
+
+    if (clear) {
+      delete fallbacks[id];
+    } else {
+      // FreqBlog is the source of truth: refuse once it has both values,
+      // since a fallback would never show anyway.
+      if (track.camelot != null && track.bpm != null) {
+        return jsonResponse({ error: 'HAS_FREQBLOG_DATA' }, 409);
+      }
+      fallbacks[id] = { camelot, ...(bpm != null ? { bpm } : {}), setAt: new Date().toISOString() };
+    }
+
+    await env.LIKED_TRACKS.put(USER_FALLBACKS_KV_KEY, JSON.stringify(fallbacks));
+    const [merged] = applyManualOverrides([track], fallbacks);
+    return jsonResponse({ ok: true, track: merged });
+  } catch (err) {
+    return jsonResponse({ error: 'SAVE_FAILED', message: String(err && err.message || err) }, 502);
   }
 }
 
