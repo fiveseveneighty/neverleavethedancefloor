@@ -589,13 +589,13 @@
        whole pill. Never a one-side accent bar. */
     .cam-provisional { outline: 1.5px dashed var(--text-muted); outline-offset: 2px; }
 
-    #keyedit-backdrop {
+    #keyedit-backdrop, #plpick-backdrop {
       position: fixed; inset: 0;
       background: rgba(0,0,0,0.55);
       z-index: 43;
     }
-    #keyedit-backdrop[hidden] { display: none; }
-    #keyedit-sheet {
+    #keyedit-backdrop[hidden], #plpick-backdrop[hidden] { display: none; }
+    #keyedit-sheet, #plpick-sheet {
       position: fixed; left: 50%; top: 50%;
       transform: translate(-50%, -50%);
       width: 380px; max-width: calc(100% - 32px);
@@ -606,9 +606,9 @@
       z-index: 44;
       padding: 1rem 1rem 1.1rem;
     }
-    #keyedit-sheet[hidden] { display: none; }
+    #keyedit-sheet[hidden], #plpick-sheet[hidden] { display: none; }
     @media (max-width: 600px) {
-      #keyedit-sheet {
+      #keyedit-sheet, #plpick-sheet {
         left: 0; right: 0; top: auto; bottom: 0;
         transform: none;
         width: 100%; max-width: 100%;
@@ -788,6 +788,49 @@
     .compat-tier-rule { flex: 1; height: 1px; background: var(--tier-hue, var(--border)); opacity: 0.45; }
     .compat-tier-count { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.68rem; color: var(--text-faint); }
     .compat-tier-empty { font-size: 0.72rem; color: var(--text-faint); font-style: italic; padding: 2px 2px 0; }
+
+    /* -- Add to playlist (B-03): mobile only -- */
+    #compat-add-row[hidden] { display: none; }
+    .compat-target-btn {
+      display: inline-flex; align-items: center; gap: 6px; max-width: 220px;
+      font-family: inherit; font-size: 0.8rem; font-weight: 600;
+      padding: 5px 10px; border-radius: 6px;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text);
+      cursor: pointer;
+    }
+    .compat-target-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .compat-target-btn.unset { color: var(--text-muted); }
+    .compat-target-btn svg { width: 10px; height: 7px; flex: none; color: var(--text-muted); }
+    .compat-add-btn {
+      -webkit-appearance: none; appearance: none; padding: 0;
+      flex: none; width: 36px; height: 36px; margin: -4px -2px -4px 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 50%; border: 1px solid var(--border); background: transparent;
+      color: var(--text); cursor: pointer;
+    }
+    .compat-add-btn svg { width: 14px; height: 14px; }
+    .compat-add-btn:disabled { opacity: 0.4; cursor: default; }
+    @media (min-width: 601px) { .compat-add-btn, #compat-add-row { display: none !important; } }
+    #plpick-sheet:not([hidden]) { display: flex; flex-direction: column; max-height: 80vh; max-height: 80dvh; }
+    #plpick-search {
+      font-family: inherit; font-size: 16px; /* 16px: no iOS auto-zoom */
+      width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); padding: 8px 10px; margin-bottom: 0.6rem;
+    }
+    #plpick-search:focus { outline: none; border-color: var(--accent); }
+    #plpick-list { overflow-y: auto; flex: 1; min-height: 120px; -webkit-overflow-scrolling: touch; }
+    .plpick-item {
+      display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+      font-family: inherit; font-size: 0.88rem; color: var(--text);
+      background: transparent; border: none; border-bottom: 1px solid var(--border);
+      padding: 0.7rem 0.25rem; cursor: pointer;
+    }
+    .plpick-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Selected = checkmark + accent text (never a side accent bar) */
+    .plpick-item svg { width: 14px; height: 14px; flex: none; color: var(--accent); visibility: hidden; }
+    .plpick-item.sel { color: var(--accent); font-weight: 600; }
+    .plpick-item.sel svg { visibility: visible; }
+    .plpick-status { font-size: 0.8rem; color: var(--text-muted); padding: 0.8rem 0.25rem; }
 </style>
 </head>
 <body>
@@ -958,9 +1001,24 @@
           <button class="pf-btn" data-compat-crate="all">All</button>
         </div>
       </div>
+      <div class="compat-ctrl-row" id="compat-add-row" hidden>
+        <span class="compat-ctrl-label">Add to</span>
+        <button type="button" class="compat-target-btn unset" id="compat-target-btn"><span id="compat-target-name">Pick a playlist</span><svg viewBox="0 0 12 8" fill="none"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
     </div>
   </div>
   <div id="compat-tiers"></div>
+</div>
+<div id="plpick-backdrop" hidden></div>
+<div id="plpick-sheet" role="dialog" aria-modal="true" aria-labelledby="plpick-heading" hidden>
+  <div class="compat-panel-head">
+    <span class="compat-panel-title" id="plpick-heading">Add to playlist</span>
+    <button class="compat-close-btn" id="plpick-close" aria-label="Close">
+      <svg viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <input type="search" id="plpick-search" placeholder="Search your playlists…" autocomplete="off" aria-label="Search playlists">
+  <div id="plpick-list"></div>
 </div>
 <div id="keyedit-backdrop" hidden></div>
 <div id="keyedit-sheet" role="dialog" aria-modal="true" aria-labelledby="keyedit-heading" hidden>
@@ -1320,9 +1378,11 @@
     applyFilters();
   });
 
-  document.querySelectorAll('.pf-btn').forEach(btn => {
+  // Scoped to #filters: the compat panel's Out/All crate buttons share the
+  // .pf-btn class and must not drive (or reset) the main table's filter.
+  document.querySelectorAll('#filters .pf-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.pf-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('#filters .pf-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       playlistFilter = btn.dataset.pf;
       applyFilters();
@@ -1392,7 +1452,7 @@
 
   function compatDefaultRange(bpm) { return { lo: Math.round(bpm) - 4, hi: Math.round(bpm) + 4 }; }
 
-  function compatRowHtml(t) {
+  function compatRowHtml(t, withAdd) {
     const playing = currentPlayingRow && currentPlayingRow.dataset && currentPlayingRow.dataset.trackId === String(t.id);
     const art = t.albumArt
       ? `<img class="art-thumb" src="${escHtml(t.albumArt)}" alt="" loading="lazy" />`
@@ -1405,6 +1465,7 @@
       </div>
       <div class="compat-row-eq"><span></span><span></span><span></span></div>
       <div class="compat-row-meta"><span>${t.bpm ? Math.round(t.bpm) : '—'}</span>${camelotPill(t.camelot, t, false)}</div>
+      ${withAdd ? `<button type="button" class="compat-add-btn" data-add-id="${t.id}" aria-label="Add to playlist"><svg viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>` : ''}
     </div>`;
   }
 
@@ -1425,6 +1486,7 @@
     const compat = COMPAT_TABLE[t.camelot];
     const lo = compatState.bpmLo, hi = compatState.bpmHi;
     let html = '';
+    const addOn = isMobile();
     COMPAT_TIERS.forEach(tier => {
       const keys = compat[tier.k] || [];
       const candidates = allTracks.filter(c => {
@@ -1437,7 +1499,7 @@
       }).sort((a, b) => Math.abs((a.bpm ?? 0) - t.bpm) - Math.abs((b.bpm ?? 0) - t.bpm));
       html += `<div class="compat-tier-section" style="--tier-hue:var(${tier.hue})">
         <div class="compat-tier-head"><span class="compat-tier-glyph">${tier.glyph}</span><span class="compat-tier-name">${tier.label}</span><span class="compat-tier-rule"></span><span class="compat-tier-count">${candidates.length}</span></div>
-        ${candidates.length ? candidates.map(compatRowHtml).join('') : '<div class="compat-tier-empty">No matches in this BPM band</div>'}
+        ${candidates.length ? candidates.map(c => compatRowHtml(c, addOn)).join('') : '<div class="compat-tier-empty">No matches in this BPM band</div>'}
       </div>`;
     });
     compatTiersEl.innerHTML = html;
@@ -1451,6 +1513,8 @@
     compatState.bpmLo = r.lo; compatState.bpmHi = r.hi;
     compatRenderSource();
     compatRenderTiers();
+    document.getElementById('compat-add-row').hidden = !isMobile();
+    updateTargetUI();
     compatBackdrop.hidden = false;
     compatPanel.hidden = false;
   }
@@ -1462,10 +1526,13 @@
   document.getElementById('compat-close').addEventListener('click', compatClose);
   compatBackdrop.addEventListener('click', compatClose);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !compatPanel.hidden) compatClose();
+    if (e.key === 'Escape' && !compatPanel.hidden && plpickSheet.hidden) compatClose();
   });
 
   compatPanel.addEventListener('click', (e) => {
+    const addBtn = e.target.closest('[data-add-id]');
+    if (addBtn) { addToTarget(addBtn.dataset.addId, addBtn); return; }
+    if (e.target.closest('#compat-target-btn')) { plpickOpen(); return; }
     const crateBtn = e.target.closest('[data-compat-crate]');
     if (crateBtn) {
       compatState.crate = crateBtn.dataset.compatCrate;
@@ -1496,6 +1563,135 @@
   }
   compatBpmLo.addEventListener('change', compatBpmChange);
   compatBpmHi.addEventListener('change', compatBpmChange);
+
+  /* ---------------- Add to playlist (B-03) ---------------- */
+  // Mobile only. Adds go straight to the Spotify playlist using the phone's
+  // own Spotify login; nothing is stored on our server. The liked-refresher
+  // Worker sees the playlist's new snapshot_id on its next run and updates
+  // In/Out then, so Out ✗ lags until that run (accepted by Dan, Oct 16 2026).
+  const ADD_SCOPES     = ['playlist-read-private', 'playlist-modify-public', 'playlist-modify-private'];
+  const ADD_TARGET_KEY = 'nltdf_add_target'; // localStorage: { id, name }
+  const plpickBackdrop   = document.getElementById('plpick-backdrop');
+  const plpickSheet      = document.getElementById('plpick-sheet');
+  const plpickSearch     = document.getElementById('plpick-search');
+  const plpickList       = document.getElementById('plpick-list');
+  const compatTargetBtn  = document.getElementById('compat-target-btn');
+  const compatTargetName = document.getElementById('compat-target-name');
+  const plpickState = { pendingId: null };
+  const addInFlight = new Set();
+  let myPlaylists = null;        // owner-only [{ id, name }], loaded once per page visit
+  let myPlaylistsPromise = null;
+
+  function getAddTarget() {
+    try { const v = JSON.parse(localStorage.getItem(ADD_TARGET_KEY) || 'null'); return v && v.id ? v : null; } catch(e) { return null; }
+  }
+  function setAddTarget(pl) {
+    try { localStorage.setItem(ADD_TARGET_KEY, JSON.stringify({ id: pl.id, name: pl.name })); } catch(e) {}
+    updateTargetUI();
+  }
+  function updateTargetUI() {
+    const tgt = getAddTarget();
+    compatTargetName.textContent = tgt ? tgt.name : 'Pick a playlist';
+    compatTargetBtn.classList.toggle('unset', !tgt);
+  }
+  function hasAddScopes() {
+    const t = getTokens();
+    const granted = (t && t.scope ? t.scope : '').split(' ');
+    return ADD_SCOPES.every(sc => granted.includes(sc));
+  }
+  // Logins from before B-03 lack the playlist scopes (and don't record scopes
+  // at all). Send those straight to Spotify's consent screen; this tap is the
+  // user gesture, and startSpotifyAuth() redirects synchronously.
+  function addReady() {
+    if (getTokens() && hasAddScopes()) return true;
+    startSpotifyAuth();
+    return false;
+  }
+
+  async function loadMyPlaylists() {
+    if (myPlaylists) return myPlaylists;
+    if (myPlaylistsPromise) return myPlaylistsPromise;
+    myPlaylistsPromise = (async () => {
+      const me = await spotifyFetch('GET', '/me');
+      if (!me || !me.id) return null;
+      const out = [];
+      let path = '/me/playlists?limit=50';
+      for (let page = 0; path && page < 10; page++) {
+        const data = await spotifyFetch('GET', path);
+        if (!data) return null;
+        // Owner-only: Spotify won't let you add to playlists you only follow.
+        (data.items || []).forEach(pl => {
+          if (pl && pl.id && pl.owner && pl.owner.id === me.id) out.push({ id: pl.id, name: pl.name || 'Untitled' });
+        });
+        path = data.next ? data.next.replace('https://api.spotify.com/v1', '') : null;
+      }
+      myPlaylists = out;
+      return out;
+    })();
+    try { return await myPlaylistsPromise; } finally { myPlaylistsPromise = null; }
+  }
+
+  function plpickRender() {
+    if (!myPlaylists) return;
+    const q = plpickSearch.value.trim().toLowerCase();
+    const tgt = getAddTarget();
+    const items = myPlaylists.filter(pl => !q || pl.name.toLowerCase().includes(q));
+    plpickList.innerHTML = items.length
+      ? items.map(pl => `<button type="button" class="plpick-item${tgt && tgt.id === pl.id ? ' sel' : ''}" data-pl-id="${escHtml(pl.id)}"><span>${escHtml(pl.name)}</span><svg viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.2 3.2L13 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`).join('')
+      : '<div class="plpick-status">No playlists match</div>';
+  }
+  async function plpickOpen(pendingId) {
+    if (!addReady()) return;
+    plpickState.pendingId = pendingId || null;
+    plpickSearch.value = '';
+    plpickBackdrop.hidden = false;
+    plpickSheet.hidden = false;
+    if (!myPlaylists) {
+      plpickList.innerHTML = '<div class="plpick-status">Loading your playlists…</div>';
+      const list = await loadMyPlaylists();
+      if (plpickSheet.hidden) return;
+      if (!list) { plpickList.innerHTML = '<div class="plpick-status">Couldn’t load playlists. Close and try again.</div>'; return; }
+    }
+    plpickRender();
+  }
+  function plpickClose() {
+    plpickBackdrop.hidden = true;
+    plpickSheet.hidden = true;
+    plpickState.pendingId = null;
+  }
+
+  async function addToTarget(id, btn) {
+    if (!addReady()) return;
+    const tgt = getAddTarget();
+    if (!tgt) { plpickOpen(id); return; } // first add: pick a playlist, then add
+    if (addInFlight.has(id)) return;    // no double-adds from a double-tap
+    addInFlight.add(id);
+    if (btn) btn.disabled = true;
+    try {
+      const res = await spotifyFetch('POST', `/playlists/${encodeURIComponent(tgt.id)}/items`, { uris: ['spotify:track:' + id] });
+      if (res) showToast('Added to ' + tgt.name, 'success'); // failures already toasted by spotifyFetch
+    } finally {
+      addInFlight.delete(id);
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  document.getElementById('plpick-close').addEventListener('click', plpickClose);
+  plpickBackdrop.addEventListener('click', plpickClose);
+  plpickSearch.addEventListener('input', plpickRender);
+  plpickList.addEventListener('click', (e) => {
+    const item = e.target.closest('[data-pl-id]');
+    if (!item || !myPlaylists) return;
+    const pl = myPlaylists.find(p => p.id === item.dataset.plId);
+    if (!pl) return;
+    const pending = plpickState.pendingId;
+    setAddTarget(pl);
+    plpickClose();
+    if (pending) addToTarget(pending, compatPanel.querySelector(`[data-add-id="${pending}"]`));
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !plpickSheet.hidden) plpickClose();
+  });
 
   /* ---------------- Stand-in key editor (B-26) ---------------- */
   // Saves a provisional key/BPM via POST /api/liked-tracks; the server keeps
@@ -1759,6 +1955,13 @@
     });
     if (res.status === 401) { clearTokens(); updateSpotifyUI(); showToast('Spotify: session expired — reconnect'); return null; }
     if (res.status === 403) { showToast('Spotify 403: Premium required or bad scope'); return null; }
+    if (res.status === 429) {
+      // Rate limited: say so plainly and don't retry. Retry-After may not be
+      // readable cross-origin, hence the fallback wording.
+      const wait = parseInt(res.headers.get('Retry-After') || '', 10);
+      showToast('Spotify is rate-limiting. Try again ' + (wait > 0 ? 'in ' + wait + 's' : 'shortly'));
+      return null;
+    }
     if (res.status === 204 || res.status === 202) return {};
     if (res.ok) return res.json().catch(() => ({}));
     showToast('Spotify error ' + res.status + ' on ' + path);
@@ -2029,7 +2232,7 @@
   // ── Spotify OAuth + PKCE ────────────────────────────────────────────
   const SPOTIFY_CLIENT_ID    = '06532c6d580f458aba98f41fdf71f344';
   const SPOTIFY_REDIRECT_URI = 'https://neverleavethedancefloor.com/library';
-  const SPOTIFY_SCOPES       = 'user-modify-playback-state user-read-playback-state user-read-currently-playing';
+  const SPOTIFY_SCOPES       = 'user-modify-playback-state user-read-playback-state user-read-currently-playing playlist-read-private playlist-modify-public playlist-modify-private';
   const SP_TOKEN_KEY         = 'nltdf_sp_tokens';
   const SP_VERIFIER_KEY      = 'nltdf_sp_verifier';
 
@@ -2086,6 +2289,7 @@
           access_token:  data.access_token,
           refresh_token: data.refresh_token || t.refresh_token,
           expires_at:    Date.now() + data.expires_in * 1000,
+          scope:         data.scope || t.scope,
         };
         saveTokens(updated);
         return updated.access_token;
@@ -2174,6 +2378,7 @@
         access_token:  data.access_token,
         refresh_token: data.refresh_token,
         expires_at:    Date.now() + data.expires_in * 1000,
+        scope:         data.scope,
       });
     } catch(e) { console.warn('Spotify auth callback error', e); }
   }
