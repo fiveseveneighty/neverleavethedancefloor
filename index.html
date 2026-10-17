@@ -97,7 +97,10 @@
 
   .cal-row { padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
   .cal-row:last-child { border-bottom: none; }
-  .cal-top { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; }
+  .cal-top { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: nowrap; gap: 8px 12px; }
+  /* Text block takes the remaining width and wraps long bills, so the
+     Tickets button always stays on the right (B-32). */
+  .cal-top > div:first-child { flex: 1; min-width: 0; overflow-wrap: break-word; }
   .cal-next { font-size: 7px; letter-spacing: 0.15em; text-transform: uppercase; color: #e8789c; border: 1px solid rgba(232,120,156,0.3); padding: 1px 5px; margin-bottom: 6px; display: inline-block; }
   .cal-date { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: #444; margin-bottom: 4px; }
   .cal-row.next .cal-date { color: #e8789c; }
