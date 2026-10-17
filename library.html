@@ -1746,68 +1746,17 @@
 
   function isMobile() { return window.innerWidth <= 600; }
 
-  // ── ?debug=1 playback readout (temporary diagnostic, Oct 16 2026) ──
-  // Off unless the URL has ?debug. Logs every Spotify call the page makes
-  // (status + key fields) into an on-screen panel; no behavior change.
-  const SP_DEBUG = new URLSearchParams(location.search).has('debug');
-  function dbg(msg) {
-    if (!SP_DEBUG) return;
-    let el = document.getElementById('sp-debug');
-    if (!el) {
-      el = document.createElement('pre');
-      el.id = 'sp-debug';
-      el.style.cssText = 'position:fixed;top:0;left:0;right:0;max-height:45vh;overflow:auto;z-index:100;margin:0;padding:6px 8px;background:rgba(0,0,0,0.93);color:#7CFC9A;font:11px/1.35 ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-all;border-bottom:1px solid #333;';
-      document.body.appendChild(el);
-    }
-    const ts = new Date().toLocaleTimeString([], { hour12: false });
-    const lines = (el.textContent + ts + ' ' + msg + '\n').split('\n');
-    el.textContent = lines.slice(-120).join('\n');
-    el.scrollTop = el.scrollHeight;
-  }
-  async function dbgResponse(method, path, body, res) {
-    let detail = '';
-    try {
-      const txt = await res.clone().text();
-      if (path.startsWith('/me/player/devices')) {
-        const j = JSON.parse(txt || '{}');
-        const ds = (j.devices || []).map(d => `[${d.name} | ${d.type} | active=${d.is_active} | restricted=${d.is_restricted} | id=${String(d.id || '').slice(0, 8)}]`);
-        detail = ds.length ? ' ' + ds.join(' ') : ' (NO DEVICES)';
-      } else if (path === '/me/player' && method === 'GET') {
-        if (!txt) detail = ' (empty body: no active playback)';
-        else {
-          const j = JSON.parse(txt);
-          detail = ` is_playing=${j.is_playing} item=${j.item ? j.item.name + ' (' + j.item.id + ')' : 'null'} device=${j.device ? j.device.name + ' | ' + j.device.type + ' | ' + String(j.device.id || '').slice(0, 8) : 'null'} progress=${j.progress_ms}`;
-        }
-      } else if (txt) {
-        detail = ' resp=' + txt.slice(0, 240);
-      }
-    } catch (e) { detail = ' (body unreadable)'; }
-    const sent = body ? ' sent=' + JSON.stringify(body).slice(0, 160) : '';
-    dbg(`${method} ${path} → ${res.status}${sent}${detail}`);
-  }
-  if (SP_DEBUG) {
-    const tk = (() => { try { return JSON.parse(localStorage.getItem('nltdf_sp_tokens') || 'null'); } catch (e) { return null; } })();
-    setTimeout(() => dbg(`debug on; spotify token ${tk ? 'present, expires in ' + Math.round((tk.expires_at - Date.now()) / 1000) + 's' : 'MISSING'}; isMobile=${window.innerWidth <= 600}`), 0);
-  }
-
   async function spotifyFetch(method, path, body) {
     const accessToken = await getAccessToken();
     if (!accessToken) return null;
-    let res;
-    try {
-      res = await fetch('https://api.spotify.com/v1' + path, {
-        method,
-        headers: {
-          'Authorization': 'Bearer ' + accessToken,
-          ...(body ? { 'Content-Type': 'application/json' } : {})
-        },
-        ...(body ? { body: JSON.stringify(body) } : {})
-      });
-    } catch (e) {
-      dbg(`${method} ${path} → NETWORK ERROR: ${e && e.message}`);
-      throw e;
-    }
-    if (SP_DEBUG) await dbgResponse(method, path, body, res);
+    const res = await fetch('https://api.spotify.com/v1' + path, {
+      method,
+      headers: {
+        'Authorization': 'Bearer ' + accessToken,
+        ...(body ? { 'Content-Type': 'application/json' } : {})
+      },
+      ...(body ? { body: JSON.stringify(body) } : {})
+    });
     if (res.status === 401) { clearTokens(); updateSpotifyUI(); showToast('Spotify: session expired — reconnect'); return null; }
     if (res.status === 403) { showToast('Spotify 403: Premium required or bad scope'); return null; }
     if (res.status === 204 || res.status === 202) return {};
@@ -1942,9 +1891,17 @@
         || null;
   }
 
+  // Spotify user ID for the Liked Songs context URI; fetched once per visit.
+  let spotifyUserId = null;
+  async function getSpotifyUserId() {
+    if (spotifyUserId) return spotifyUserId;
+    const me = await spotifyFetch('GET', '/me');
+    if (me && me.id) spotifyUserId = me.id;
+    return spotifyUserId;
+  }
+
   async function mobilePlay(t, tr) {
     const myGen = ++mobilePlayGen;
-    dbg(`TAP "${t.title}" (${t.id})`);
     function stale() { return myGen !== mobilePlayGen; }
     function rollback(msg) {
       if (stale()) return; // a newer tap already superseded this one — leave its state alone
@@ -1957,7 +1914,6 @@
     }
     updateMobileBar(t); // immediate feedback — bar shows right away, before any network calls resolve
     let active = await findSmartphoneDevice();
-    dbg(`picked device (try 1): ${active ? active.name + ' | ' + active.type + ' | active=' + active.is_active : 'none'}`);
     if (stale()) return;
     if (!active) {
       // Registration lag: Spotify can take a moment to see a just-opened app. One retry.
@@ -1976,30 +1932,22 @@
       if (stale()) return;
     }
     mobileCurrentUri = 'spotify:track:' + t.id;
-    // TEMP A/B (debug only): ?debug=1&variant=q puts device_id in the query
-    // string (Spotify's documented form); variant=nodev omits it; variant=ctx
-    // plays it within Liked Songs. Without a
-    // variant the call is unchanged (device_id in the JSON body).
-    const playVariant = SP_DEBUG ? (new URLSearchParams(location.search).get('variant') || '') : '';
-    let playPath = '/me/player/play';
-    let playBody = { uris: [mobileCurrentUri], device_id: active.id };
-    if (playVariant === 'q') {
-      playPath += '?device_id=' + encodeURIComponent(active.id);
-      playBody = { uris: [mobileCurrentUri] };
-    } else if (playVariant === 'nodev') {
-      playBody = { uris: [mobileCurrentUri] };
-    } else if (playVariant === 'ctx') {
-      // Play the track inside the Liked Songs context instead of as a bare URI.
-      const me = await spotifyFetch('GET', '/me');
-      if (stale()) return;
-      playPath += '?device_id=' + encodeURIComponent(active.id);
-      playBody = { context_uri: `spotify:user:${me && me.id}:collection`, offset: { uri: mobileCurrentUri } };
-    }
-    dbg(`play variant: ${playVariant || 'current (device_id in body)'}`);
-    const playRes = await spotifyFetch('PUT', playPath, playBody);
+    // Play the track within Liked Songs (context_uri + offset), not as a bare
+    // `uris` list. Since Oct 16 2026 a bare-uris play to the iPhone app is
+    // accepted (204) but knocks the app off Spotify Connect and nothing plays;
+    // the same track via the Liked Songs context works (confirmed with a
+    // ?debug readout). Every library track is a liked song. When it ends,
+    // Spotify continues to the next liked song. device_id goes in the query
+    // string, Spotify's documented form.
+    const userId = await getSpotifyUserId();
+    if (stale()) return;
+    if (!userId) { rollback('Could not start playback — try again'); return; }
+    const playRes = await spotifyFetch('PUT', '/me/player/play?device_id=' + encodeURIComponent(active.id), {
+      context_uri: `spotify:user:${userId}:collection`,
+      offset: { uri: mobileCurrentUri },
+    });
     if (stale()) return;
     if (playRes === null) { rollback('Could not start playback — try again'); return; }
-    if (SP_DEBUG) setTimeout(() => { dbg('check 2s after play:'); spotifyFetch('GET', '/me/player'); }, 2000);
     setTimeout(() => startPolling(), 5000);
   }
 
@@ -2017,7 +1965,7 @@
       await spotifyFetch('PUT', '/me/player', { device_ids: [active.id], play: false });
       await new Promise(r => setTimeout(r, 500));
     }
-    const res = await spotifyFetch('PUT', '/me/player/play', active ? { device_id: active.id } : undefined);
+    const res = await spotifyFetch('PUT', '/me/player/play' + (active ? '?device_id=' + encodeURIComponent(active.id) : ''));
     if (res === null) { showToast('Open Spotify on your iPhone, then tap play again'); return; }
     mobilePendingFlip = null;
     setPauseIcon(true);
