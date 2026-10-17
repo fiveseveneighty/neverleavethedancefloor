@@ -5,3 +5,7 @@ Favico-for-admin.png
 NLTDF-white-neon-n-favicon-package/
 .claude/settings.local.json
 Claude outputs/
+
+# Claude working notes: never commit (the site publishes the repo root)
+PROJECT_NOTES.md
+CLAUDE.md
