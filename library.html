@@ -1977,7 +1977,8 @@
     }
     mobileCurrentUri = 'spotify:track:' + t.id;
     // TEMP A/B (debug only): ?debug=1&variant=q puts device_id in the query
-    // string (Spotify's documented form); variant=nodev omits it. Without a
+    // string (Spotify's documented form); variant=nodev omits it; variant=ctx
+    // plays it within Liked Songs. Without a
     // variant the call is unchanged (device_id in the JSON body).
     const playVariant = SP_DEBUG ? (new URLSearchParams(location.search).get('variant') || '') : '';
     let playPath = '/me/player/play';
@@ -1987,6 +1988,12 @@
       playBody = { uris: [mobileCurrentUri] };
     } else if (playVariant === 'nodev') {
       playBody = { uris: [mobileCurrentUri] };
+    } else if (playVariant === 'ctx') {
+      // Play the track inside the Liked Songs context instead of as a bare URI.
+      const me = await spotifyFetch('GET', '/me');
+      if (stale()) return;
+      playPath += '?device_id=' + encodeURIComponent(active.id);
+      playBody = { context_uri: `spotify:user:${me && me.id}:collection`, offset: { uri: mobileCurrentUri } };
     }
     dbg(`play variant: ${playVariant || 'current (device_id in body)'}`);
     const playRes = await spotifyFetch('PUT', playPath, playBody);
