@@ -1976,10 +1976,20 @@
       if (stale()) return;
     }
     mobileCurrentUri = 'spotify:track:' + t.id;
-    const playRes = await spotifyFetch('PUT', '/me/player/play', {
-      uris: [mobileCurrentUri],
-      device_id: active.id,
-    });
+    // TEMP A/B (debug only): ?debug=1&variant=q puts device_id in the query
+    // string (Spotify's documented form); variant=nodev omits it. Without a
+    // variant the call is unchanged (device_id in the JSON body).
+    const playVariant = SP_DEBUG ? (new URLSearchParams(location.search).get('variant') || '') : '';
+    let playPath = '/me/player/play';
+    let playBody = { uris: [mobileCurrentUri], device_id: active.id };
+    if (playVariant === 'q') {
+      playPath += '?device_id=' + encodeURIComponent(active.id);
+      playBody = { uris: [mobileCurrentUri] };
+    } else if (playVariant === 'nodev') {
+      playBody = { uris: [mobileCurrentUri] };
+    }
+    dbg(`play variant: ${playVariant || 'current (device_id in body)'}`);
+    const playRes = await spotifyFetch('PUT', playPath, playBody);
     if (stale()) return;
     if (playRes === null) { rollback('Could not start playback — try again'); return; }
     if (SP_DEBUG) setTimeout(() => { dbg('check 2s after play:'); spotifyFetch('GET', '/me/player'); }, 2000);
