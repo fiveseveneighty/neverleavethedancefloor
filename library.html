@@ -735,6 +735,7 @@
     }
     .compat-ctrl-grid { display: flex; flex-direction: column; gap: 0.6rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
     .compat-ctrl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .compat-in-chips { flex-wrap: wrap; justify-content: flex-end; flex: 1 1 0; min-width: 0; }
     .compat-ctrl-label {
       font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
       font-size: 0.7rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; flex: none;
@@ -999,7 +1000,12 @@
         <div class="playlist-filter-btns">
           <button class="pf-btn active" data-compat-crate="out">Out ✗</button>
           <button class="pf-btn" data-compat-crate="all">All</button>
+          <button class="pf-btn" data-compat-crate="in">In</button>
         </div>
+      </div>
+      <div class="compat-ctrl-row" id="compat-in-row" hidden>
+        <span class="compat-ctrl-label">Within</span>
+        <div class="playlist-filter-btns compat-in-chips" id="compat-in-chips"></div>
       </div>
       <div class="compat-ctrl-row" id="compat-add-row" hidden>
         <span class="compat-ctrl-label">Add to</span>
@@ -1442,7 +1448,9 @@
     {k:'mood', label:'Mood Change',      hue:'--tier-mood', glyph:'◆'}
   ];
 
-  const compatState = { sourceId: null, bpmLo: null, bpmHi: null, crate: 'out' };
+  // crate: 'out' = not in any playlist, 'all' = everything, 'in' = only tracks in compatState.inPlaylist,
+  // one of the source track's playlists (B-36). inPlaylist defaults to the Add-to target when the source is in it.
+  const compatState = { sourceId: null, bpmLo: null, bpmHi: null, crate: 'out', inPlaylist: null };
   const compatBackdrop = document.getElementById('compat-backdrop');
   const compatPanel    = document.getElementById('compat-panel');
   const compatBpmLo    = document.getElementById('compat-bpm-lo');
@@ -1485,6 +1493,10 @@
     }
     const compat = COMPAT_TABLE[t.camelot];
     const lo = compatState.bpmLo, hi = compatState.bpmHi;
+    if (compatState.crate === 'in' && !compatState.inPlaylist) {
+      compatTiersEl.innerHTML = '<div class="compat-tier-empty">This track isn’t in any playlist yet. Pick Out or All.</div>';
+      return;
+    }
     let html = '';
     const addOn = isMobile();
     COMPAT_TIERS.forEach(tier => {
@@ -1495,6 +1507,7 @@
         const bpm = c.bpm ?? 0;
         if (bpm < lo || bpm > hi) return false;
         if (compatState.crate === 'out' && c.inPlaylist) return false;
+        if (compatState.crate === 'in' && !(c.playlistNames || []).includes(compatState.inPlaylist)) return false;
         return true;
       }).sort((a, b) => Math.abs((a.bpm ?? 0) - t.bpm) - Math.abs((b.bpm ?? 0) - t.bpm));
       html += `<div class="compat-tier-section" style="--tier-hue:var(${tier.hue})">
@@ -1505,6 +1518,23 @@
     compatTiersEl.innerHTML = html;
   }
 
+  // "In" scope (B-36): pick which of the source track's playlists to stay within, and draw the chips.
+  // When re-picking, prefer the Add-to target if the source is in it, then the current pick, then the first.
+  function compatSyncIn(repick) {
+    const t = trackById.get(String(compatState.sourceId));
+    const names = (t && t.playlistNames) || [];
+    if (repick || !names.includes(compatState.inPlaylist)) {
+      const tgt = getAddTarget();
+      if (tgt && names.includes(tgt.name)) compatState.inPlaylist = tgt.name;
+      else if (!names.includes(compatState.inPlaylist)) compatState.inPlaylist = names[0] || null;
+    }
+    const row = document.getElementById('compat-in-row');
+    row.hidden = compatState.crate !== 'in' || !names.length;
+    document.getElementById('compat-in-chips').innerHTML = names.map(n =>
+      `<button type="button" class="pf-btn${n === compatState.inPlaylist ? ' active' : ''}" data-compat-in="${escHtml(n)}">${escHtml(n.trim())}</button>`
+    ).join('');
+  }
+
   function compatOpen(id) {
     const t = trackById.get(String(id));
     if (!t) return;
@@ -1512,6 +1542,7 @@
     const r = compatDefaultRange(t.bpm || 120);
     compatState.bpmLo = r.lo; compatState.bpmHi = r.hi;
     compatRenderSource();
+    compatSyncIn(true);
     compatRenderTiers();
     document.getElementById('compat-add-row').hidden = !isMobile();
     updateTargetUI();
@@ -1533,10 +1564,18 @@
     const addBtn = e.target.closest('[data-add-id]');
     if (addBtn) { addToTarget(addBtn.dataset.addId, addBtn); return; }
     if (e.target.closest('#compat-target-btn')) { plpickOpen(); return; }
+    const inChip = e.target.closest('[data-compat-in]');
+    if (inChip) {
+      compatState.inPlaylist = inChip.dataset.compatIn;
+      compatSyncIn(false);
+      compatRenderTiers();
+      return;
+    }
     const crateBtn = e.target.closest('[data-compat-crate]');
     if (crateBtn) {
       compatState.crate = crateBtn.dataset.compatCrate;
       compatPanel.querySelectorAll('[data-compat-crate]').forEach(b => b.classList.toggle('active', b === crateBtn));
+      compatSyncIn(true);
       compatRenderTiers();
       return;
     }
@@ -1588,6 +1627,7 @@
   function setAddTarget(pl) {
     try { localStorage.setItem(ADD_TARGET_KEY, JSON.stringify({ id: pl.id, name: pl.name })); } catch(e) {}
     updateTargetUI();
+    if (!compatPanel.hidden && compatState.crate === 'in') { compatSyncIn(true); compatRenderTiers(); }
   }
   function updateTargetUI() {
     const tgt = getAddTarget();
