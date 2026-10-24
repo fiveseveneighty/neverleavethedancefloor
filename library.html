@@ -317,6 +317,13 @@
       color: var(--text-muted);
     }
 
+    /* ── Playlist filter dropdown (B-27) ── */
+    #pl-select { margin-top: 4px; max-width: 220px; }
+    #pl-select[hidden] { display: none; }
+    @media (max-width: 600px) { #pl-select { font-size: 16px; } }
+    .playlist-pill[data-pl-filter] { cursor: pointer; }
+    .playlist-pill[data-pl-filter]:hover { border-color: var(--accent); }
+
     /* ── Playlist pills ── */
     .playlist-pill {
       display: inline-block;
@@ -893,6 +900,7 @@
         <button class="pf-btn" data-pf="in">In ✓</button>
         <button class="pf-btn" data-pf="out">Out ✗</button>
       </div>
+      <select id="pl-select" aria-label="Which playlist" hidden></select>
     </div>
     <div class="filter-group">
       <label>Sort</label>
@@ -1143,6 +1151,7 @@
   let sortCol = 'addedAt';
   let sortDir = 'desc';
   let playlistFilter = 'all';
+  let playlistName = '';   // with playlistFilter 'in': '' = any playlist, else one playlist's name (B-27)
 
   const authOverlay    = document.getElementById('auth-overlay');
   const app            = document.getElementById('app');
@@ -1239,6 +1248,35 @@
     } else {
       refreshStatus.textContent = allTracks.length ? '' : 'No data yet — click Refresh to fetch.';
     }
+    buildPlaylistOptions();
+    applyFilters();
+  }
+
+  // Playlist dropdown (B-27): every playlist that has tracks in the library, most recent first
+  // (by its newest liked track, since Spotify gives no creation date), with track counts.
+  function buildPlaylistOptions() {
+    const stats = new Map();
+    allTracks.forEach(t => (t.playlistNames || []).forEach(n => {
+      const s = stats.get(n) || { count: 0, latest: '' };
+      s.count++;
+      if ((t.addedAt || '') > s.latest) s.latest = t.addedAt || '';
+      stats.set(n, s);
+    }));
+    const names = [...stats.keys()].sort((a, b) => stats.get(b).latest.localeCompare(stats.get(a).latest));
+    if (playlistName && !stats.has(playlistName)) playlistName = '';
+    const sel = document.getElementById('pl-select');
+    sel.innerHTML = '<option value="">Any playlist</option>' +
+      names.map(n => `<option value="${escHtml(n)}">${escHtml(n.trim())} (${stats.get(n).count})</option>`).join('');
+    sel.value = playlistName;
+  }
+
+  function setPlaylistFilter(pf, name) {
+    playlistFilter = pf;
+    playlistName = pf === 'in' ? (name || '') : '';
+    document.querySelectorAll('#filters .pf-btn').forEach(b => b.classList.toggle('active', b.dataset.pf === pf));
+    const sel = document.getElementById('pl-select');
+    sel.hidden = pf !== 'in';
+    sel.value = playlistName;
     applyFilters();
   }
 
@@ -1253,6 +1291,7 @@
       if (bpm < bpmLo || bpm > bpmHi) return false;
       if (playlistFilter === 'in'  && !t.inPlaylist) return false;
       if (playlistFilter === 'out' &&  t.inPlaylist) return false;
+      if (playlistFilter === 'in' && playlistName && !(t.playlistNames || []).includes(playlistName)) return false;
       return true;
     });
     sortTracks();
@@ -1306,7 +1345,7 @@
       // Playlist
       let plHtml = '';
       if (t.inPlaylist && t.playlistNames && t.playlistNames.length) {
-        plHtml = t.playlistNames.map(n => `<span class="playlist-pill">${escHtml(n)}</span>`).join('');
+        plHtml = t.playlistNames.map(n => `<span class="playlist-pill" data-pl-filter="${escHtml(n)}" title="Show only this playlist">${escHtml(n)}</span>`).join('');
       } else if (t.inPlaylist) {
         plHtml = '<span class="playlist-pill in-playlist">✓</span>';
       } else {
@@ -1387,12 +1426,11 @@
   // Scoped to #filters: the compat panel's Out/All crate buttons share the
   // .pf-btn class and must not drive (or reset) the main table's filter.
   document.querySelectorAll('#filters .pf-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('#filters .pf-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      playlistFilter = btn.dataset.pf;
-      applyFilters();
-    });
+    btn.addEventListener('click', () => setPlaylistFilter(btn.dataset.pf, ''));
+  });
+  document.getElementById('pl-select').addEventListener('change', (e) => {
+    playlistName = e.target.value;
+    applyFilters();
   });
 
   tbody.addEventListener('click', (e) => {
@@ -1400,6 +1438,12 @@
     if (editPill) { keyeditOpen(editPill.dataset.editKey); return; }
     const findBtn = e.target.closest('.find-btn');
     if (findBtn) { compatOpen(findBtn.dataset.find); return; }
+    const plPill = e.target.closest('[data-pl-filter]');
+    if (plPill) {
+      setPlaylistFilter('in', plPill.dataset.plFilter);
+      document.getElementById('filters').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     const tr = e.target.closest('tr');
     if (!tr) return;
     if (tr.classList.contains('now-playing')) {
