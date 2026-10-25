@@ -1963,7 +1963,11 @@
     const lock = seqScorable(x)
       ? `<button type="button" class="compat-close-btn${locked ? ' seq-on' : ''}" data-lock="${escHtml(id)}" aria-label="${locked ? 'Unlock' : 'Lock in place'}">${locked ? SEQ_ICON.lockC : SEQ_ICON.lockO}</button>`
       : '<span class="seq-lock-gap"></span>';
-    return `<div class="seq-row-ctl">${lock}<span class="seq-grip" data-drag="${escHtml(id)}" aria-label="Drag to move">${SEQ_ICON.grip}</span></div>`;
+    // ✕ only on NEW (unsaved) tracks: removing a saved track would mean deleting from Spotify, which nothing here does
+    const rm = seqState.inserted.has(id)
+      ? `<button type="button" class="compat-close-btn" data-remove="${escHtml(id)}" aria-label="Remove this pick"><svg viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>`
+      : '';
+    return `<div class="seq-row-ctl">${rm}${lock}<span class="seq-grip" data-drag="${escHtml(id)}" aria-label="Drag to move">${SEQ_ICON.grip}</span></div>`;
   }
   function seqRenderList() {
     const order = seqState.order;
@@ -2207,6 +2211,19 @@
   // ── Order list: locks, lock-above, play ──
   document.getElementById('seq-list').addEventListener('click', (e) => {
     const st = seqState;
+    const rmb = e.target.closest('[data-remove]');
+    if (rmb) {
+      const id = rmb.dataset.remove;
+      if (!st.inserted.has(id)) return;
+      st.order = st.order.filter(x => x !== id);
+      st.inserted.delete(id); st.locks.delete(id); st.moved.delete(id); st.openBridges.delete(id);
+      st.rejected.add(id);            // won't come back in later fills this session
+      if (st.lockMenu === id) st.lockMenu = null;
+      seqRender();
+      const t = trackById.get(id);
+      showToast(`Removed “${t ? t.title : 'track'}”`, 'success');
+      return;
+    }
     const br = e.target.closest('[data-br]');
     if (br) { const id = br.dataset.br; st.openBridges.has(id) ? st.openBridges.delete(id) : st.openBridges.add(id); seqRenderList(); return; }
     const ins = e.target.closest('[data-insert]');
@@ -2330,7 +2347,8 @@
     document.querySelectorAll('#seq-pool .pf-btn').forEach(b => b.classList.toggle('active', b.dataset.pool === 'out' ? st.poolOut : st.poolHash));
     document.querySelectorAll('#seq-age .pf-btn').forEach(b => b.classList.toggle('active', b.dataset.age === st.age));
     document.getElementById('seq-fill-n').textContent = st.fillN;
-    const refill = [...st.inserted].some(id => !st.locks.has(id));
+    // Below the Fill number it tops up (keeps everything); at or above it, Refill swaps the unlocked NEW picks
+    const refill = st.order.length >= st.fillN && [...st.inserted].some(id => !st.locks.has(id));
     document.getElementById('seq-fill-go').textContent = refill ? 'Refill' : 'Fill';
   }
   function seqDrawTplList() {
@@ -2405,7 +2423,8 @@
     seqCloseMenus(); document.getElementById('seq-tpl-list').hidden = true;
     if (!st.poolOut && !st.poolHash) { showToast('Turn on at least one pool', 'error'); return; }
     // Refill: unlocked NEW tracks from the last fill go back, and won't be picked again this session
-    const drop = [...st.inserted].filter(id => !st.locks.has(id));
+    const topUp = st.order.length < st.fillN;
+    const drop = topUp ? [] : [...st.inserted].filter(id => !st.locks.has(id));
     const base = st.order.filter(id => !drop.includes(id));
     const count = st.fillN - base.length;
     if (count <= 0) { showToast(`Already ${base.length} tracks; raise the Fill number`, 'error'); return; }
@@ -2427,7 +2446,7 @@
       picks.forEach(id => st.inserted.add(id));
       st.shape = shape;
       document.getElementById('seq-tpl-hint').hidden = true;
-      showToast(`${drop.length ? 'Refilled' : 'Added'} ${picks.length} tracks; review, then Update`, 'success');
+      showToast(`${drop.length ? 'Refilled' : 'Added'} ${picks.length} track${picks.length === 1 ? '' : 's'}; review, then Update`, 'success');
     }, drop.length ? 'Refilling' : 'Filling');
   });
 
