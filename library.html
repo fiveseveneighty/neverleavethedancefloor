@@ -318,7 +318,9 @@
     }
 
     /* ── Playlist filter dropdown (B-27) ── */
-    #pl-select { margin-top: 4px; max-width: 220px; }
+    .pl-select-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+    #pl-select { max-width: 220px; min-width: 0; }
+    #seq-open-btn[hidden] { display: none; }
     #pl-select[hidden] { display: none; }
     @media (max-width: 600px) { #pl-select { font-size: 16px; } }
     .playlist-pill[data-pl-filter] { cursor: pointer; }
@@ -535,8 +537,8 @@
   }
   #mobile-player-pause svg.icon-hidden { display: none; }
   body.mobile-player-active { padding-bottom: calc(108px + env(safe-area-inset-bottom, 0px)); }
-  body.player-active #compat-panel { padding-bottom: 80px; }
-  body.mobile-player-active #compat-panel { padding-bottom: calc(108px + env(safe-area-inset-bottom, 0px)); }
+  body.player-active #compat-panel, body.player-active #seq-panel { padding-bottom: 80px; }
+  body.mobile-player-active #compat-panel, body.mobile-player-active #seq-panel { padding-bottom: calc(108px + env(safe-area-inset-bottom, 0px)); }
 
   /* Scrubber: thin visible track, larger invisible touch target (44pt-ish hit zone) */
   #mobile-player-progress {
@@ -677,14 +679,14 @@
       tbody tr:hover .find-btn, .find-btn:focus-visible { opacity: 1; }
     }
 
-    #compat-backdrop {
+    #compat-backdrop, #seq-backdrop {
       position: fixed; inset: 0;
       background: rgba(0,0,0,0.5);
       z-index: 39;
     }
-    #compat-backdrop[hidden] { display: none; }
+    #compat-backdrop[hidden], #seq-backdrop[hidden] { display: none; }
 
-    #compat-panel {
+    #compat-panel, #seq-panel {
       position: fixed; top: 0; right: 0;
       width: 420px; max-width: 100%;
       height: 100%; height: 100dvh;
@@ -695,9 +697,33 @@
       overflow-y: auto;
       padding: 1rem 1rem 1.5rem;
     }
-    #compat-panel[hidden] { display: none; }
+    #compat-panel[hidden], #seq-panel[hidden] { display: none; }
+    /* ── Sequencing panel (B-37). Shell shared with #compat-panel above. ── */
+    .seq-pl-name { font-size: 1.25rem; font-weight: 700; color: var(--accent); line-height: 1.2; }
+    .seq-sub { font-size: 0.78rem; color: var(--text-muted); margin-top: 3px; }
+    .seq-sub .warn { color: var(--red); }
+    .seq-sub .ok { color: var(--accent); }
+    .seq-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .seq-title-row .seq-pl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pf-btn.seq-reseq { flex: none; display: inline-flex; align-items: center; gap: 5px; }
+    .pf-btn.seq-reseq svg { width: 11px; height: 11px; }
+    .pf-btn.seq-reseq:disabled { opacity: 0.45; cursor: default; }
+    .seq-summary { margin-top: 0.75rem; }
+    .seq-summary-head { display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; -webkit-user-select: none; }
+    .seq-summary-head svg.chev { width: 10px; height: 7px; color: var(--text-muted); transition: transform 0.15s; }
+    .seq-summary.collapsed svg.chev { transform: rotate(-90deg); }
+    .seq-summary.collapsed .seq-summary-body { display: none; }
+    .seq-chart { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px 6px; margin-top: 8px; }
+    .seq-chart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+    .seq-chart-name { font-size: 0.83rem; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .seq-chart-name.cur { color: var(--accent); }
+    .seq-chart-meta { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.68rem; color: var(--text-muted); white-space: nowrap; }
+    .seq-chart svg { width: 100%; height: auto; display: block; }
+    .seq-chart-axis { display: flex; justify-content: space-between; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.63rem; color: var(--text-faint); margin-top: 2px; }
+    .seq-empty { font-size: 0.78rem; color: var(--text-muted); padding: 10px 0; }
+
     @media (max-width: 600px) {
-      #compat-panel { width: 100%; }
+      #compat-panel, #seq-panel { width: 100%; }
       /* iOS WebKit (Safari and every iOS browser, incl. Chrome, is
          WebKit under the hood) auto-zooms the page on focusing any
          input with a computed font-size under 16px. .bpm-input is
@@ -900,7 +926,10 @@
         <button class="pf-btn" data-pf="in">In ✓</button>
         <button class="pf-btn" data-pf="out">Out ✗</button>
       </div>
-      <select id="pl-select" aria-label="Which playlist" hidden></select>
+      <div class="pl-select-row">
+        <select id="pl-select" aria-label="Which playlist" hidden></select>
+        <button type="button" class="pf-btn" id="seq-open-btn" hidden>Sequence</button>
+      </div>
     </div>
     <div class="filter-group">
       <label>Sort</label>
@@ -1023,6 +1052,29 @@
   </div>
   <div id="compat-tiers"></div>
 </div>
+<div id="seq-backdrop" hidden></div>
+<div id="seq-panel" hidden>
+  <div class="compat-panel-head">
+    <span class="compat-panel-title">Sequencing</span>
+    <button class="compat-close-btn" id="seq-close" aria-label="Close">
+      <svg viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="compat-source-card">
+    <div class="seq-title-row">
+      <div class="seq-pl-name" id="seq-pl-name"></div>
+      <button type="button" class="pf-btn seq-reseq" id="seq-reseq" disabled title="Shape controls arrive in the next update"><svg viewBox="0 0 16 16" fill="none"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Re-sequence</button>
+    </div>
+    <div class="seq-sub" id="seq-sub"></div>
+    <div class="seq-summary" id="seq-summary">
+      <div class="seq-summary-head" id="seq-summary-head" role="button" tabindex="0" aria-expanded="true">
+        <span class="compat-ctrl-label" id="seq-summary-label">Energy</span>
+        <svg class="chev" viewBox="0 0 12 8" fill="none"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="seq-summary-body"><div id="seq-charts"></div></div>
+    </div>
+  </div>
+</div>
 <div id="plpick-backdrop" hidden></div>
 <div id="plpick-sheet" role="dialog" aria-modal="true" aria-labelledby="plpick-heading" hidden>
   <div class="compat-panel-head">
@@ -1057,6 +1109,7 @@
     <button type="button" class="keyedit-btn keyedit-save" id="keyedit-save" disabled>Save</button>
   </div>
 </div>
+<script src="/sequencer.js"></script>
 <script>
   const API_ENDPOINT   = '/api/liked-tracks';
   const WORKER_URL     = 'https://nltdf-liked-refresher.dansaltzmandesign.workers.dev/';
@@ -1151,6 +1204,7 @@
   let sortCol = 'addedAt';
   let sortDir = 'desc';
   let playlistFilter = 'all';
+  let playlistsData = [];   // [{ id, name, trackIds }] in Spotify order, from the playlist cache (B-37)
   let playlistName = '';   // with playlistFilter 'in': '' = any playlist, else one playlist's name (B-27)
 
   const authOverlay    = document.getElementById('auth-overlay');
@@ -1237,6 +1291,7 @@
 
   function ingestData(data) {
     allTracks = data.tracks || [];
+    playlistsData = Array.isArray(data.playlists) ? data.playlists : [];
     trackById = new Map(allTracks.map(t => [String(t.id), t]));
     const inPl = allTracks.filter(t => t.inPlaylist).length;
     statTotal.textContent = data.totalLiked ?? allTracks.length;
@@ -1250,6 +1305,7 @@
     }
     buildPlaylistOptions();
     applyFilters();
+    seqSyncOpenBtn();
   }
 
   // Playlist dropdown (B-27): every playlist that has tracks in the library, most recent first
@@ -1273,11 +1329,12 @@
   function setPlaylistFilter(pf, name) {
     playlistFilter = pf;
     playlistName = pf === 'in' ? (name || '') : '';
-    document.querySelectorAll('#filters .pf-btn').forEach(b => b.classList.toggle('active', b.dataset.pf === pf));
+    document.querySelectorAll('#filters .pf-btn[data-pf]').forEach(b => b.classList.toggle('active', b.dataset.pf === pf));
     const sel = document.getElementById('pl-select');
     sel.hidden = pf !== 'in';
     sel.value = playlistName;
     applyFilters();
+    seqSyncOpenBtn();
   }
 
   function applyFilters() {
@@ -1425,12 +1482,13 @@
 
   // Scoped to #filters: the compat panel's Out/All crate buttons share the
   // .pf-btn class and must not drive (or reset) the main table's filter.
-  document.querySelectorAll('#filters .pf-btn').forEach(btn => {
+  document.querySelectorAll('#filters .pf-btn[data-pf]').forEach(btn => {
     btn.addEventListener('click', () => setPlaylistFilter(btn.dataset.pf, ''));
   });
   document.getElementById('pl-select').addEventListener('change', (e) => {
     playlistName = e.target.value;
     applyFilters();
+    seqSyncOpenBtn();
   });
 
   tbody.addEventListener('click', (e) => {
@@ -1597,6 +1655,109 @@
     compatBackdrop.hidden = true;
     compatPanel.hidden = true;
   }
+
+  // ── Sequencing panel (B-37, build step 3). Read-only: nothing here writes to Spotify
+  // (Update / Save as copy arrive in step 6). Engine: /sequencer.js. Design: claude/SET_SEQUENCER.md.
+  const SEQ = window.NLTDFSequencer || null;
+  const seqPanel    = document.getElementById('seq-panel');
+  const seqBackdrop = document.getElementById('seq-backdrop');
+  const seqState = { pl: null, saved: [], order: [], missing: 0, line: 'e', collapsed: false };
+
+  function seqPlaylistByName(name) {
+    if (!name) return null;
+    return playlistsData.find(p => p.name === name)
+        || playlistsData.find(p => (p.name || '').trim() === name.trim()) || null;
+  }
+  function seqSyncOpenBtn() {
+    const btn = document.getElementById('seq-open-btn');
+    btn.hidden = !(SEQ && playlistFilter === 'in' && seqPlaylistByName(playlistName));
+  }
+  // Engine track shape: { id, camelot, bpm, energy }; t keeps the library record for rendering
+  function seqTrack(id) {
+    const t = trackById.get(String(id));
+    return t ? { id: String(t.id), camelot: t.camelot || null, bpm: t.bpm || null, energy: t.energy ?? null, t } : null;
+  }
+  // Weak only counts when both sides have a key and BPM to judge by
+  function seqWeakCount(order) {
+    let n = 0;
+    for (let i = 1; i < order.length; i++) {
+      const a = seqTrack(order[i - 1]), b = seqTrack(order[i]);
+      if (a && b && a.camelot && b.camelot && a.bpm && b.bpm && SEQ.isWeak(a, b)) n++;
+    }
+    return n;
+  }
+  function seqChartHtml(name, vals, cur) {
+    const W = 300, H = 64, p = 6, n = vals.length;
+    const have = vals.map((v, i) => [i, v]).filter(([, v]) => v != null);
+    const isE = seqState.line === 'e';
+    const nums = have.map(([, v]) => v);
+    const lo = isE ? 0.2 : Math.min(...nums, 115), hi = isE ? 1 : Math.max(...nums, 140);
+    const X = i => p + i / Math.max(1, n - 1) * (W - 2 * p);
+    const Y = y => H - p - (Math.max(lo, Math.min(hi, y)) - lo) / (hi - lo) * (H - 2 * p);
+    const col = cur ? '#1db954' : '#e8789c';
+    const pts = have.map(([i, v]) => X(i).toFixed(1) + ',' + Y(v).toFixed(1));
+    const gaps = n - have.length;
+    const meta = `${n} tracks · ${isE ? 'energy' : 'BPM'}${gaps ? ` · ${gaps} without` : ''}`;
+    return `<div class="seq-chart"><div class="seq-chart-head"><span class="seq-chart-name${cur ? ' cur' : ''}">${escHtml(name)}</span><span class="seq-chart-meta">${meta}</span></div>
+      <svg viewBox="0 0 ${W} ${H}"><line x1="${p}" x2="${W - p}" y1="${H - p}" y2="${H - p}" stroke="#2a2a2a"/>${pts.length > 1 ? `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="1.6"/>` : ''}${pts.map(xy => { const [x, y] = xy.split(','); return `<circle cx="${x}" cy="${y}" r="2.4" fill="${col}"/>`; }).join('')}</svg>
+      <div class="seq-chart-axis"><span>first</span><span>last</span></div></div>`;
+  }
+  function seqRenderHeader() {
+    const pl = seqState.pl, order = seqState.order;
+    document.getElementById('seq-pl-name').textContent = (pl.name || '').trim();
+    const weak = seqWeakCount(order);
+    let sub = `${order.length} track${order.length === 1 ? '' : 's'} · ` + (weak
+      ? `<span class="warn">${weak} weak spot${weak > 1 ? 's' : ''}</span>`
+      : `<span class="ok">no weak spots</span>`);
+    if (seqState.missing) sub += ` · ${seqState.missing} not in the library`;
+    document.getElementById('seq-sub').innerHTML = sub;
+    document.getElementById('seq-summary-label').textContent = seqState.line === 'e' ? 'Energy' : 'BPM';
+    const vals = order.map(id => { const x = seqTrack(id); return x ? (seqState.line === 'e' ? x.energy : x.bpm) : null; });
+    document.getElementById('seq-charts').innerHTML = order.length
+      ? seqChartHtml('Spotify current', vals, true)
+      : '<div class="seq-empty">No tracks from this playlist are in the library yet.</div>';
+    const sum = document.getElementById('seq-summary');
+    sum.classList.toggle('collapsed', seqState.collapsed);
+    document.getElementById('seq-summary-head').setAttribute('aria-expanded', String(!seqState.collapsed));
+  }
+  function seqOpen() {
+    const pl = seqPlaylistByName(playlistName);
+    if (!SEQ || !pl) return;
+    const seen = new Set(), ids = [];
+    let missing = 0;
+    (pl.trackIds || []).forEach(id => {
+      id = String(id);
+      if (seen.has(id)) return;
+      seen.add(id);
+      if (trackById.has(id)) ids.push(id); else missing++;
+    });
+    seqState.pl = pl;
+    seqState.saved = ids.slice();     // Spotify order as of the last Worker refresh
+    seqState.order = ids.slice();
+    seqState.missing = missing;
+    seqRenderHeader();
+    seqPanel.scrollTop = 0;
+    seqBackdrop.hidden = false;
+    seqPanel.hidden = false;
+  }
+  function seqClose() {
+    seqBackdrop.hidden = true;
+    seqPanel.hidden = true;
+  }
+  function seqToggleSummary() {
+    seqState.collapsed = !seqState.collapsed;
+    seqRenderHeader();
+  }
+  document.getElementById('seq-open-btn').addEventListener('click', seqOpen);
+  document.getElementById('seq-close').addEventListener('click', seqClose);
+  seqBackdrop.addEventListener('click', seqClose);
+  document.getElementById('seq-summary-head').addEventListener('click', seqToggleSummary);
+  document.getElementById('seq-summary-head').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); seqToggleSummary(); }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !seqPanel.hidden) seqClose();
+  });
 
   document.getElementById('compat-close').addEventListener('click', compatClose);
   compatBackdrop.addEventListener('click', compatClose);
