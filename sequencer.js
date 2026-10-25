@@ -219,13 +219,15 @@
   }
 
   /* Fill: pick `count` tracks from `pool` to follow `prefix` (the playlist's own tracks, opener first).
-   * opts: { prefix, pool, count, shape, pulse, tpl } — tracks are { id, camelot, bpm, energy }.
+   * opts: { prefix, pool, count, shape, pulse, tpl, extraCost } — tracks are { id, camelot, bpm, energy };
+   * extraCost (optional) maps a pool track's id to a cost added when it's picked (the page's Age lean).
    * Beam search over positions prefix.length .. prefix.length + count - 1 against the shape or template
    * target for a set of the final length. Returns the picked ids in order (the caller re-sequences). */
   function fill(opts) {
     const prefix = opts.prefix, n = prefix.length + opts.count, o = prefix[0];
     const ctx = { shape: opts.shape, pulse: !!opts.pulse, prof: null, tpl: opts.tpl || null };
     const pool = opts.pool.filter(x => x.camelot && x.bpm && x.energy != null && !prefix.some(y => y.id === x.id));
+    const extra = opts.extraCost || {};
     let beams = [{ s: prefix.slice(), c: 0, used: new Set() }];
     for (let pos = prefix.length; pos < n; pos++) {
       const next = [];
@@ -235,7 +237,7 @@
         const scored = [];
         for (const x of pool) {
           if (bm.used.has(x.id)) continue;
-          scored.push({ x, c: transitionCost(last, x, ctx) + pulseCost(prev, last, x, ctx) + shapeCost(x, pos, n, o, ctx) });
+          scored.push({ x, c: transitionCost(last, x, ctx) + pulseCost(prev, last, x, ctx) + shapeCost(x, pos, n, o, ctx) + (extra[x.id] || 0) });
         }
         scored.sort((a, b) => a.c - b.c);
         for (const z of scored.slice(0, 40)) {
