@@ -721,6 +721,17 @@
     .seq-chart svg { width: 100%; height: auto; display: block; }
     .seq-chart-axis { display: flex; justify-content: space-between; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.63rem; color: var(--text-faint); margin-top: 2px; }
     .seq-empty { font-size: 0.78rem; color: var(--text-muted); padding: 10px 0; }
+    .seq-order-head { display: flex; align-items: center; justify-content: space-between; margin: 0 0 8px; }
+    .seq-order-head .compat-ctrl-label { color: var(--accent); }
+    .seq-wrap { position: relative; padding-right: 44px; }
+    .seq-strip { position: absolute; right: 0; top: 0; width: 40px; pointer-events: none; }
+    .seq-trn { display: flex; align-items: baseline; gap: 8px; margin: 2px 2px 8px; }
+    .seq-trn .compat-tier-name { font-size: 0.68rem; }
+    .seq-trn .compat-tier-glyph svg { width: 11px; height: 11px; vertical-align: -1px; }
+    .seq-delta { margin-left: auto; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; }
+    .seq-delta.up { color: var(--accent); }
+    .seq-delta.down { color: var(--red); }
+    #seq-list .compat-row:last-child { margin-bottom: 0; }
 
     @media (max-width: 600px) {
       #compat-panel, #seq-panel { width: 100%; }
@@ -1073,6 +1084,17 @@
       </div>
       <div class="seq-summary-body"><div id="seq-charts"></div></div>
     </div>
+  </div>
+  <div class="seq-order-head">
+    <span class="compat-ctrl-label">Order</span>
+    <div class="playlist-filter-btns" id="seq-line">
+      <button type="button" class="pf-btn active" data-line="e">Energy</button>
+      <button type="button" class="pf-btn" data-line="b">BPM</button>
+    </div>
+  </div>
+  <div class="seq-wrap" id="seq-wrap">
+    <div id="seq-list"></div>
+    <svg class="seq-strip" id="seq-strip" aria-hidden="true"></svg>
   </div>
 </div>
 <div id="plpick-backdrop" hidden></div>
@@ -1736,9 +1758,10 @@
     seqState.order = ids.slice();
     seqState.missing = missing;
     seqRenderHeader();
-    seqPanel.scrollTop = 0;
     seqBackdrop.hidden = false;
     seqPanel.hidden = false;
+    seqRenderList();
+    seqPanel.scrollTop = 0;
   }
   function seqClose() {
     seqBackdrop.hidden = true;
@@ -1748,6 +1771,85 @@
     seqState.collapsed = !seqState.collapsed;
     seqRenderHeader();
   }
+
+  // Transition labels: same names, glyphs and hues as COMPAT_TIERS, plus same-key and off-chart
+  const SEQ_WARN_SVG = '<svg viewBox="0 0 16 16" fill="none"><path d="M8 2l6.5 11.5h-13L8 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.6v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+  function seqTierLabel(k) {
+    if (k === 'same') return { label: 'Same key', hue: '--accent', glyph: '●' };
+    if (k === 'other') return { label: 'Off-chart key', hue: '--text-muted', glyph: '×' };
+    return COMPAT_TIERS.find(x => x.k === k) || { label: k, hue: '--text-muted', glyph: '·' };
+  }
+  function seqDeltaHtml(a, b) {
+    if (!a || !b) return '<span class="seq-delta">— BPM</span>';
+    const d = Math.round(b - a);
+    if (!d) return '<span class="seq-delta">±0 BPM</span>';
+    return `<span class="seq-delta ${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲ +' : '▼ −'}${Math.abs(d)} BPM</span>`;
+  }
+  function seqTransitionHtml(a, b) {
+    let L, weak = false;
+    if (!a.camelot || !b.camelot) L = { label: 'No key to judge', hue: '--text-faint', glyph: '·' };
+    else {
+      L = seqTierLabel(SEQ.tier(a.camelot, b.camelot));
+      weak = !!(a.bpm && b.bpm && SEQ.isWeak(a, b));
+    }
+    const hue = weak ? '--red' : L.hue;
+    return `<div class="seq-trn" style="--tier-hue:var(${hue})"><span class="compat-tier-glyph">${weak ? SEQ_WARN_SVG : L.glyph}</span><span class="compat-tier-name">${weak ? 'Weak · ' : ''}${L.label}</span>${seqDeltaHtml(a.bpm, b.bpm)}</div>`;
+  }
+  function seqRenderList() {
+    const order = seqState.order;
+    let html = '';
+    order.forEach((id, i) => {
+      const x = seqTrack(id);
+      if (!x) return;
+      if (i) { const p = seqTrack(order[i - 1]); if (p) html += seqTransitionHtml(p, x); }
+      html += compatRowHtml(x.t, false).replace('class="compat-row', 'class="compat-row seq-row');
+    });
+    document.getElementById('seq-list').innerHTML = html;
+    document.querySelectorAll('#seq-line .pf-btn').forEach(b => b.classList.toggle('active', b.dataset.line === seqState.line));
+    requestAnimationFrame(seqDrawStrip);
+  }
+  // Energy (or BPM) per track, drawn down the right edge level with each row
+  function seqDrawStrip() {
+    const strip = document.getElementById('seq-strip'), list = document.getElementById('seq-list');
+    if (seqPanel.hidden) return;
+    const rows = [...list.querySelectorAll('.seq-row')], H = list.offsetHeight;
+    strip.setAttribute('height', H); strip.style.height = H + 'px';
+    const isE = seqState.line === 'e', W = 40, pad = 5;
+    const top = list.getBoundingClientRect().top;
+    const pts = [];
+    rows.forEach(r => {
+      const x = seqTrack(r.dataset.trackId); if (!x) return;
+      const v = isE ? x.energy : x.bpm; if (v == null) return;
+      const b = r.getBoundingClientRect();
+      pts.push([v, b.top - top + b.height / 2]);
+    });
+    const nums = pts.map(p => p[0]);
+    const lo = isE ? 0.2 : Math.min(...nums, 115), hi = isE ? 1 : Math.max(...nums, 140);
+    const X = v => pad + (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (W - 2 * pad);
+    const xy = pts.map(([v, y]) => [X(v).toFixed(1), y.toFixed(1)]);
+    strip.innerHTML = `<line x1="${W - pad}" x2="${W - pad}" y1="0" y2="${H}" stroke="#2a2a2a"/>`
+      + (xy.length > 1 ? `<polyline points="${xy.map(p => p.join(',')).join(' ')}" fill="none" stroke="#e8789c" stroke-width="1.5"/>` : '')
+      + xy.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="2.6" fill="#e8789c"/>`).join('');
+  }
+  document.getElementById('seq-line').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-line]');
+    if (!b || b.dataset.line === seqState.line) return;
+    seqState.line = b.dataset.line;
+    seqRenderHeader();
+    seqRenderList();
+  });
+  // Tap a row to play it, same as Compatibility Mode rows
+  document.getElementById('seq-list').addEventListener('click', (e) => {
+    const row = e.target.closest('.compat-row');
+    if (!row) return;
+    if (row.classList.contains('now-playing')) {
+      if (isMobile() && getTokens()) mobilePause();
+      return;
+    }
+    const t = trackById.get(row.dataset.trackId);
+    if (t) loadTrack(t, row);
+  });
+  window.addEventListener('resize', () => { if (!seqPanel.hidden) requestAnimationFrame(seqDrawStrip); });
   document.getElementById('seq-open-btn').addEventListener('click', seqOpen);
   document.getElementById('seq-close').addEventListener('click', seqClose);
   seqBackdrop.addEventListener('click', seqClose);
