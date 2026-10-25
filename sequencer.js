@@ -179,7 +179,13 @@
     return bestK;
   }
 
-  const api = { SHAPES, tier, transitionCost, isWeak, sequence, suggestBridges, profile, classifyShape, totalCost };
+  // The shape's target band at position p (0..1), for drawing: { energy, bpm, energyTol, bpmTol }
+  function shapeTarget(p, n, opener, ctx) {
+    const [energy, bpm] = target(p, n, opener, ctx);
+    return { energy, bpm, energyTol: energyTol(ctx), bpmTol: bpmTol(ctx) };
+  }
+
+  const api = { SHAPES, tier, transitionCost, isWeak, sequence, suggestBridges, profile, classifyShape, totalCost, shapeTarget };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NLTDFSequencer = api;
 })(typeof window !== 'undefined' ? window : globalThis);

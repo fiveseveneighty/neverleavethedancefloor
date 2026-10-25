@@ -707,7 +707,6 @@
     .seq-title-row .seq-pl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .pf-btn.seq-reseq { flex: none; display: inline-flex; align-items: center; gap: 5px; }
     .pf-btn.seq-reseq svg { width: 11px; height: 11px; }
-    .pf-btn.seq-reseq:disabled { opacity: 0.45; cursor: default; }
     .seq-summary { margin-top: 0.75rem; }
     .seq-summary-head { display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; -webkit-user-select: none; }
     .seq-summary-head svg.chev { width: 10px; height: 7px; color: var(--text-muted); transition: transform 0.15s; }
@@ -732,6 +731,28 @@
     .seq-delta.up { color: var(--accent); }
     .seq-delta.down { color: var(--red); }
     #seq-list .compat-row:last-child { margin-bottom: 0; }
+    .seq-ctrl { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 8px; }
+    .compat-target-btn.seq-wide { width: 100%; max-width: none; justify-content: space-between; }
+    .seq-pick { display: flex; flex-direction: column; gap: 4px; margin-left: 72px; }
+    .seq-pick[hidden], #seq-op-list[hidden], .seq-confirm[hidden] { display: none; }
+    .seq-pick button { text-align: left; font: inherit; font-size: 0.8rem; font-weight: 600; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; }
+    .seq-pick button.on { border-color: var(--accent); color: var(--accent); }
+    .seq-pick .seq-pick-sub { display: block; font-size: 0.7rem; font-weight: 400; color: var(--text-muted); margin-top: 2px; }
+    .seq-pick-sep { height: 1px; background: var(--border); margin: 2px 0; }
+    #seq-op-list { max-height: 50vh; overflow-y: auto; }
+    #seq-op-list .compat-row.seq-op-cur { border-color: var(--accent); }
+    .seq-confirm { border: 1px solid var(--yellow); border-radius: 6px; padding: 10px; font-size: 0.78rem; color: var(--text); }
+    .seq-confirm-btns { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+    .seq-row-ctl { display: flex; align-items: center; gap: 6px; flex: none; }
+    .seq-opener-tag { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.63rem; letter-spacing: 0.1em; color: var(--accent); width: 54px; text-align: center; }
+    .seq-lock-gap { width: 28px; }
+    .seq-grip { color: var(--text-faint); touch-action: none; cursor: grab; display: inline-flex; width: 20px; height: 28px; align-items: center; justify-content: center; }
+    .seq-grip svg { width: 10px; height: 16px; pointer-events: none; }
+    .compat-row.seq-locked { border-color: var(--text-faint); }
+    .compat-row.seq-drag { box-shadow: 0 0 0 1.5px var(--accent); }
+    .compat-close-btn.seq-on { color: var(--accent); border-color: var(--accent); }
+    .compat-close-btn svg.ic { width: 13px; height: 13px; }
+    .seq-lockmenu { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin: 0 0 8px; }
 
     @media (max-width: 600px) {
       #compat-panel, #seq-panel { width: 100%; }
@@ -1074,7 +1095,7 @@
   <div class="compat-source-card">
     <div class="seq-title-row">
       <div class="seq-pl-name" id="seq-pl-name"></div>
-      <button type="button" class="pf-btn seq-reseq" id="seq-reseq" disabled title="Shape controls arrive in the next update"><svg viewBox="0 0 16 16" fill="none"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Re-sequence</button>
+      <button type="button" class="pf-btn seq-reseq" id="seq-reseq"><svg viewBox="0 0 16 16" fill="none"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Re-sequence</button>
     </div>
     <div class="seq-sub" id="seq-sub"></div>
     <div class="seq-summary" id="seq-summary">
@@ -1083,6 +1104,26 @@
         <svg class="chev" viewBox="0 0 12 8" fill="none"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
       <div class="seq-summary-body"><div id="seq-charts"></div></div>
+    </div>
+    <div class="compat-ctrl-grid" style="margin-top:0.85rem">
+      <div class="seq-ctrl">
+        <span class="compat-ctrl-label">Opener</span>
+        <button type="button" class="compat-target-btn seq-wide" id="seq-op-btn"><span id="seq-op-name"></span><svg viewBox="0 0 12 8" fill="none"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
+      <div id="seq-op-list" hidden></div>
+      <div class="seq-ctrl">
+        <span class="compat-ctrl-label">Shape</span>
+        <button type="button" class="compat-target-btn seq-wide" id="seq-shape-btn"><span id="seq-shape-name"></span><svg viewBox="0 0 12 8" fill="none"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
+      <div id="seq-shape-list" class="seq-pick" hidden></div>
+      <div class="seq-ctrl">
+        <span class="compat-ctrl-label">Pulse</span>
+        <div class="playlist-filter-btns" id="seq-pulse"><button type="button" class="pf-btn active" data-pulse="off">Smooth</button><button type="button" class="pf-btn" data-pulse="on">Pulse</button></div>
+      </div>
+      <div id="seq-confirm" class="seq-confirm" hidden>
+        <div id="seq-confirm-msg"></div>
+        <div class="seq-confirm-btns"><button type="button" class="pf-btn" id="seq-confirm-cancel">Cancel</button><button type="button" class="pf-btn active" id="seq-confirm-go">Continue</button></div>
+      </div>
     </div>
   </div>
   <div class="seq-order-head">
@@ -1680,10 +1721,24 @@
 
   // ── Sequencing panel (B-37, build step 3). Read-only: nothing here writes to Spotify
   // (Update / Save as copy arrive in step 6). Engine: /sequencer.js. Design: claude/SET_SEQUENCER.md.
+  //
+  // What rebuilds the order: changing the opener, the shape or Pulse, and Re-sequence (each goes
+  // through seqRebuild, which warns first if it would undo manual drags). What never does: dragging,
+  // locking/unlocking, the Energy/BPM switch, the summary chart, playing.
   const SEQ = window.NLTDFSequencer || null;
   const seqPanel    = document.getElementById('seq-panel');
   const seqBackdrop = document.getElementById('seq-backdrop');
-  const seqState = { pl: null, saved: [], order: [], missing: 0, line: 'e', collapsed: false };
+  const seqState = {
+    pl: null, saved: [], order: [], missing: 0, line: 'e', collapsed: false,
+    opener: null, shape: 'sp', pulse: false, prof: null,
+    locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null
+  };
+  const SEQ_ICON = {
+    warn: '<svg viewBox="0 0 16 16" fill="none"><path d="M8 2l6.5 11.5h-13L8 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.6v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    lockC: '<svg class="ic" viewBox="0 0 16 16" fill="none"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" stroke-width="1.5"/></svg>',
+    lockO: '<svg class="ic" viewBox="0 0 16 16" fill="none"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 4.9-.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    grip: '<svg viewBox="0 0 10 16" fill="currentColor"><circle cx="3" cy="3" r="1.2"/><circle cx="7" cy="3" r="1.2"/><circle cx="3" cy="8" r="1.2"/><circle cx="7" cy="8" r="1.2"/><circle cx="3" cy="13" r="1.2"/><circle cx="7" cy="13" r="1.2"/></svg>'
+  };
 
   function seqPlaylistByName(name) {
     if (!name) return null;
@@ -1699,15 +1754,30 @@
     const t = trackById.get(String(id));
     return t ? { id: String(t.id), camelot: t.camelot || null, bpm: t.bpm || null, energy: t.energy ?? null, t } : null;
   }
-  // Weak only counts when both sides have a key and BPM to judge by
-  function seqWeakCount(order) {
+  // The engine needs a key and BPM to place a track; tracks without them go to the end, unlocked
+  const seqScorable = x => !!(x && x.camelot && x.bpm);
+  // Opener and locked tracks are Dan's choices: a move between two of them is never flagged
+  const seqIsPinned = (id, i) => i === 0 || seqState.locks.has(id);
+  function seqFlag(i) {
+    const order = seqState.order, a = seqTrack(order[i - 1]), b = seqTrack(order[i]);
+    if (!a || !b) return { weak: false, a, b };
+    const weak = seqScorable(a) && seqScorable(b) && !(seqIsPinned(order[i - 1], i - 1) && seqIsPinned(order[i], i)) && SEQ.isWeak(a, b);
+    return { weak, a, b };
+  }
+  function seqWeakCount() {
     let n = 0;
-    for (let i = 1; i < order.length; i++) {
-      const a = seqTrack(order[i - 1]), b = seqTrack(order[i]);
-      if (a && b && a.camelot && b.camelot && a.bpm && b.bpm && SEQ.isWeak(a, b)) n++;
-    }
+    for (let i = 1; i < seqState.order.length; i++) if (seqFlag(i).weak) n++;
     return n;
   }
+  const seqDiffers = () => seqState.order.length !== seqState.saved.length || seqState.order.some((id, i) => id !== seqState.saved[i]);
+  // Opener plus the locked tracks directly under it (Match my opening needs 3+)
+  function seqLockedPrefix() {
+    const o = seqState.order;
+    let k = 1;
+    while (k < o.length && seqState.locks.has(o[k])) k++;
+    return o.slice(0, k);
+  }
+
   function seqChartHtml(name, vals, cur) {
     const W = 300, H = 64, p = 6, n = vals.length;
     const have = vals.map((v, i) => [i, v]).filter(([, v]) => v != null);
@@ -1727,7 +1797,7 @@
   function seqRenderHeader() {
     const pl = seqState.pl, order = seqState.order;
     document.getElementById('seq-pl-name').textContent = (pl.name || '').trim();
-    const weak = seqWeakCount(order);
+    const weak = seqWeakCount();
     let sub = `${order.length} track${order.length === 1 ? '' : 's'} · ` + (weak
       ? `<span class="warn">${weak} weak spot${weak > 1 ? 's' : ''}</span>`
       : `<span class="ok">no weak spots</span>`);
@@ -1735,45 +1805,19 @@
     document.getElementById('seq-sub').innerHTML = sub;
     document.getElementById('seq-summary-label').textContent = seqState.line === 'e' ? 'Energy' : 'BPM';
     const vals = order.map(id => { const x = seqTrack(id); return x ? (seqState.line === 'e' ? x.energy : x.bpm) : null; });
+    const chartName = seqState.shape === 'sp' && !seqDiffers() ? 'Spotify current' : 'This order';
     document.getElementById('seq-charts').innerHTML = order.length
-      ? seqChartHtml('Spotify current', vals, true)
+      ? seqChartHtml(chartName, vals, true)
       : '<div class="seq-empty">No tracks from this playlist are in the library yet.</div>';
-    const sum = document.getElementById('seq-summary');
-    sum.classList.toggle('collapsed', seqState.collapsed);
+    document.getElementById('seq-summary').classList.toggle('collapsed', seqState.collapsed);
     document.getElementById('seq-summary-head').setAttribute('aria-expanded', String(!seqState.collapsed));
-  }
-  function seqOpen() {
-    const pl = seqPlaylistByName(playlistName);
-    if (!SEQ || !pl) return;
-    const seen = new Set(), ids = [];
-    let missing = 0;
-    (pl.trackIds || []).forEach(id => {
-      id = String(id);
-      if (seen.has(id)) return;
-      seen.add(id);
-      if (trackById.has(id)) ids.push(id); else missing++;
-    });
-    seqState.pl = pl;
-    seqState.saved = ids.slice();     // Spotify order as of the last Worker refresh
-    seqState.order = ids.slice();
-    seqState.missing = missing;
-    seqRenderHeader();
-    seqBackdrop.hidden = false;
-    seqPanel.hidden = false;
-    seqRenderList();
-    seqPanel.scrollTop = 0;
-  }
-  function seqClose() {
-    seqBackdrop.hidden = true;
-    seqPanel.hidden = true;
-  }
-  function seqToggleSummary() {
-    seqState.collapsed = !seqState.collapsed;
-    seqRenderHeader();
+    const op = seqTrack(order[0]);
+    document.getElementById('seq-op-name').textContent = op ? op.t.title : '—';
+    document.getElementById('seq-shape-name').textContent = SEQ.SHAPES[seqState.shape];
+    document.querySelectorAll('#seq-pulse .pf-btn').forEach(b => b.classList.toggle('active', (b.dataset.pulse === 'on') === seqState.pulse));
   }
 
   // Transition labels: same names, glyphs and hues as COMPAT_TIERS, plus same-key and off-chart
-  const SEQ_WARN_SVG = '<svg viewBox="0 0 16 16" fill="none"><path d="M8 2l6.5 11.5h-13L8 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.6v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
   function seqTierLabel(k) {
     if (k === 'same') return { label: 'Same key', hue: '--accent', glyph: '●' };
     if (k === 'other') return { label: 'Off-chart key', hue: '--text-muted', glyph: '×' };
@@ -1785,15 +1829,21 @@
     if (!d) return '<span class="seq-delta">±0 BPM</span>';
     return `<span class="seq-delta ${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲ +' : '▼ −'}${Math.abs(d)} BPM</span>`;
   }
-  function seqTransitionHtml(a, b) {
-    let L, weak = false;
-    if (!a.camelot || !b.camelot) L = { label: 'No key to judge', hue: '--text-faint', glyph: '·' };
-    else {
-      L = seqTierLabel(SEQ.tier(a.camelot, b.camelot));
-      weak = !!(a.bpm && b.bpm && SEQ.isWeak(a, b));
-    }
+  function seqTransitionHtml(i) {
+    const { weak, a, b } = seqFlag(i);
+    const L = (!a.camelot || !b.camelot)
+      ? { label: 'No key to judge', hue: '--text-faint', glyph: '·' }
+      : seqTierLabel(SEQ.tier(a.camelot, b.camelot));
     const hue = weak ? '--red' : L.hue;
-    return `<div class="seq-trn" style="--tier-hue:var(${hue})"><span class="compat-tier-glyph">${weak ? SEQ_WARN_SVG : L.glyph}</span><span class="compat-tier-name">${weak ? 'Weak · ' : ''}${L.label}</span>${seqDeltaHtml(a.bpm, b.bpm)}</div>`;
+    return `<div class="seq-trn" style="--tier-hue:var(${hue})"><span class="compat-tier-glyph">${weak ? SEQ_ICON.warn : L.glyph}</span><span class="compat-tier-name">${weak ? 'Weak · ' : ''}${L.label}</span>${seqDeltaHtml(a.bpm, b.bpm)}</div>`;
+  }
+  function seqRowCtl(id, i, x) {
+    if (i === 0) return '<div class="seq-row-ctl"><span class="seq-opener-tag">OPENER</span></div>';
+    const locked = seqState.locks.has(id);
+    const lock = seqScorable(x)
+      ? `<button type="button" class="compat-close-btn${locked ? ' seq-on' : ''}" data-lock="${escHtml(id)}" aria-label="${locked ? 'Unlock' : 'Lock in place'}">${locked ? SEQ_ICON.lockC : SEQ_ICON.lockO}</button>`
+      : '<span class="seq-lock-gap"></span>';
+    return `<div class="seq-row-ctl">${lock}<span class="seq-grip" data-drag="${escHtml(id)}" aria-label="Drag to move">${SEQ_ICON.grip}</span></div>`;
   }
   function seqRenderList() {
     const order = seqState.order;
@@ -1801,14 +1851,22 @@
     order.forEach((id, i) => {
       const x = seqTrack(id);
       if (!x) return;
-      if (i) { const p = seqTrack(order[i - 1]); if (p) html += seqTransitionHtml(p, x); }
-      html += compatRowHtml(x.t, false).replace('class="compat-row', 'class="compat-row seq-row');
+      if (i) html += seqTransitionHtml(i);
+      const cls = 'compat-row seq-row' + (seqState.locks.has(id) ? ' seq-locked' : '') + (seqState.dragId === id ? ' seq-drag' : '');
+      html += compatRowHtml(x.t, false)
+        .replace('class="compat-row', `class="${cls}`)
+        .replace(/<\/div>\s*$/, seqRowCtl(id, i, x) + '</div>');
+      if (seqState.lockMenu === id) {
+        html += `<div class="seq-lockmenu"><button type="button" class="pf-btn" data-lockone="${escHtml(id)}">Lock this track</button><button type="button" class="pf-btn active" data-lockall="${escHtml(id)}">Lock this and everything above</button></div>`;
+      }
     });
     document.getElementById('seq-list').innerHTML = html;
     document.querySelectorAll('#seq-line .pf-btn').forEach(b => b.classList.toggle('active', b.dataset.line === seqState.line));
     requestAnimationFrame(seqDrawStrip);
   }
-  // Energy (or BPM) per track, drawn down the right edge level with each row
+  function seqRender() { seqRenderHeader(); seqRenderList(); }
+
+  // Energy (or BPM) per track down the right edge, level with each row; the shape's target as a faint band
   function seqDrawStrip() {
     const strip = document.getElementById('seq-strip'), list = document.getElementById('seq-list');
     if (seqPanel.hidden) return;
@@ -1816,30 +1874,222 @@
     strip.setAttribute('height', H); strip.style.height = H + 'px';
     const isE = seqState.line === 'e', W = 40, pad = 5;
     const top = list.getBoundingClientRect().top;
+    const ys = rows.map(r => { const b = r.getBoundingClientRect(); return b.top - top + b.height / 2; });
     const pts = [];
-    rows.forEach(r => {
+    rows.forEach((r, i) => {
       const x = seqTrack(r.dataset.trackId); if (!x) return;
       const v = isE ? x.energy : x.bpm; if (v == null) return;
-      const b = r.getBoundingClientRect();
-      pts.push([v, b.top - top + b.height / 2]);
+      pts.push([v, ys[i]]);
     });
     const nums = pts.map(p => p[0]);
     const lo = isE ? 0.2 : Math.min(...nums, 115), hi = isE ? 1 : Math.max(...nums, 140);
     const X = v => pad + (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (W - 2 * pad);
+    let band = '';
+    const o = seqEngineTrack(seqState.order[0]);
+    if (seqState.shape !== 'sp' && o && rows.length > 1) {
+      const n = rows.length, ctx = { shape: seqState.shape, pulse: seqState.pulse, prof: seqState.prof };
+      const L = [], R = [];
+      ys.forEach((y, i) => {
+        const t = SEQ.shapeTarget(n > 1 ? i / (n - 1) : 0, n, o, ctx);
+        const v = isE ? t.energy : t.bpm, w = isE ? t.energyTol : t.bpmTol;
+        L.push(X(v - w).toFixed(1) + ',' + y.toFixed(1));
+        R.unshift(X(v + w).toFixed(1) + ',' + y.toFixed(1));
+      });
+      band = `<polygon points="${L.concat(R).join(' ')}" fill="#1db954" fill-opacity="0.13"/>`;
+    }
     const xy = pts.map(([v, y]) => [X(v).toFixed(1), y.toFixed(1)]);
-    strip.innerHTML = `<line x1="${W - pad}" x2="${W - pad}" y1="0" y2="${H}" stroke="#2a2a2a"/>`
+    strip.innerHTML = `<line x1="${W - pad}" x2="${W - pad}" y1="0" y2="${H}" stroke="#2a2a2a"/>` + band
       + (xy.length > 1 ? `<polyline points="${xy.map(p => p.join(',')).join(' ')}" fill="none" stroke="#e8789c" stroke-width="1.5"/>` : '')
       + xy.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="2.6" fill="#e8789c"/>`).join('');
   }
+
+  // ── Rebuilding the order ──
+  // Tracks with no energy yet get the playlist's median energy, so they sit mid-pack instead of breaking the scoring
+  function seqMedianEnergy() {
+    const e = seqState.order.map(id => (seqTrack(id) || {}).energy).filter(v => v != null).sort((a, b) => a - b);
+    return e.length ? e[Math.floor(e.length / 2)] : 0.7;
+  }
+  function seqEngineTrack(id) {
+    const x = seqTrack(id);
+    if (!seqScorable(x)) return null;
+    return { id: x.id, camelot: x.camelot, bpm: x.bpm, energy: x.energy ?? seqMedianEnergy() };
+  }
+  function seqSequence() {
+    const st = seqState;
+    st.moved.clear(); st.lockMenu = null;
+    if (st.shape === 'sp') {        // Spotify current: put back the order saved in Spotify
+      st.order = st.saved.slice(); st.prof = null;
+      seqRender(); return;
+    }
+    const scorable = st.order.filter(id => seqEngineTrack(id));
+    const rest = st.order.filter(id => !seqEngineTrack(id));
+    if (scorable.length < 2) { showToast('Not enough tracks with a key and BPM to sequence', 'error'); return; }
+    if (!scorable.includes(st.opener)) st.opener = scorable[0];
+    // Locked tracks keep their place among the scorable tracks
+    const lockedAt = {};
+    scorable.forEach((id, i) => { if (i && st.locks.has(id) && id !== st.opener) lockedAt[i] = id; });
+    // The opener might currently sit further down; the engine always puts it first
+    if (scorable[0] !== st.opener) Object.keys(lockedAt).forEach(k => { if (lockedAt[k] === st.opener) delete lockedAt[k]; });
+    const res = SEQ.sequence({ tracks: scorable.map(seqEngineTrack), openerId: st.opener, shape: st.shape, pulse: st.pulse, lockedAt });
+    st.prof = res.prof;
+    st.order = res.order.concat(rest);
+    seqRender();
+    if (rest.length && !st.warnedRest) st.warnedRest = true, showToast(`${rest.length} track${rest.length > 1 ? 's' : ''} without a key or BPM went to the end`, 'error');
+  }
+  // Every rebuild goes through here so manual drags are never lost silently
+  function seqRebuild(apply, label) {
+    const st = seqState;
+    const m = [...st.moved].filter(id => !st.locks.has(id) && st.order.includes(id)).length;
+    if (!m) { apply(); seqSequence(); return; }
+    st.pending = apply;
+    const toSp = !!apply.toSp;
+    document.getElementById('seq-confirm-msg').textContent =
+      `${label} will undo ${m} manual move${m > 1 ? 's' : ''}.` + (toSp ? '' : (m > 1 ? ' Lock them first to keep them where they are.' : ' Lock it first to keep it where it is.'));
+    document.getElementById('seq-confirm').hidden = false;
+  }
+  function seqCloseMenus() {
+    document.getElementById('seq-op-list').hidden = true;
+    document.getElementById('seq-shape-list').hidden = true;
+  }
+
+  function seqOpen() {
+    const pl = seqPlaylistByName(playlistName);
+    if (!SEQ || !pl) return;
+    const seen = new Set(), ids = [];
+    let missing = 0;
+    (pl.trackIds || []).forEach(id => {
+      id = String(id);
+      if (seen.has(id)) return;
+      seen.add(id);
+      if (trackById.has(id)) ids.push(id); else missing++;
+    });
+    Object.assign(seqState, {
+      pl, saved: ids.slice(), order: ids.slice(), missing,   // saved = Spotify order as of the last Worker refresh
+      opener: ids[0] || null, shape: 'sp', pulse: false, prof: null,
+      locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null, warnedRest: false
+    });
+    seqCloseMenus();
+    document.getElementById('seq-confirm').hidden = true;
+    seqBackdrop.hidden = false;
+    seqPanel.hidden = false;
+    seqRender();
+    seqPanel.scrollTop = 0;
+  }
+  function seqClose() {
+    seqBackdrop.hidden = true;
+    seqPanel.hidden = true;
+  }
+  function seqToggleSummary() {
+    seqState.collapsed = !seqState.collapsed;
+    seqRenderHeader();
+    requestAnimationFrame(seqDrawStrip);
+  }
+
+  // ── Controls ──
+  document.getElementById('seq-reseq').addEventListener('click', () => {
+    seqCloseMenus();
+    seqRebuild(() => {}, 'Re-sequencing');
+  });
+  // Opener: pick any track with a key and BPM
+  document.getElementById('seq-op-btn').addEventListener('click', () => {
+    const list = document.getElementById('seq-op-list');
+    document.getElementById('seq-shape-list').hidden = true;
+    if (!list.hidden) { list.hidden = true; return; }
+    list.innerHTML = seqState.order.map(id => seqTrack(id)).filter(seqScorable)
+      .map(x => compatRowHtml(x.t, false).replace('class="compat-row', `class="compat-row${x.id === seqState.order[0] ? ' seq-op-cur' : ''}`)).join('');
+    list.hidden = false;
+  });
+  document.getElementById('seq-op-list').addEventListener('click', (e) => {
+    const row = e.target.closest('.compat-row');
+    if (!row) return;
+    const id = row.dataset.trackId;
+    document.getElementById('seq-op-list').hidden = true;
+    if (id === seqState.order[0] && seqState.shape !== 'sp') return;
+    seqRebuild(() => {
+      seqState.opener = id;
+      seqState.locks.delete(id);
+      if (seqState.shape === 'sp') seqState.shape = 'lg';
+    }, 'Changing the opener');
+  });
+  // Shape: the four shapes, Match my opening, and Spotify current while the order differs from it
+  function seqDrawShapeList() {
+    const st = seqState, lp = seqLockedPrefix().length;
+    let h = ['lg', 'cl', 'rr', 'so'].map(k => `<button type="button" data-shape="${k}" class="${k === st.shape ? 'on' : ''}">${SEQ.SHAPES[k]}</button>`).join('');
+    h += `<button type="button" data-shape="mo" class="${st.shape === 'mo' ? 'on' : ''}">${SEQ.SHAPES.mo}<span class="seq-pick-sub">${lp >= 3 ? `Continues the feel of your ${lp} locked opening tracks` : 'Lock your first few tracks to use this'}</span></button>`;
+    if (seqDiffers() || st.shape === 'sp') {
+      h += `<div class="seq-pick-sep"></div><button type="button" data-shape="sp" class="${st.shape === 'sp' ? 'on' : ''}">${SEQ.SHAPES.sp}<span class="seq-pick-sub">The order saved in Spotify</span></button>`;
+    }
+    document.getElementById('seq-shape-list').innerHTML = h;
+  }
+  document.getElementById('seq-shape-btn').addEventListener('click', () => {
+    const list = document.getElementById('seq-shape-list');
+    document.getElementById('seq-op-list').hidden = true;
+    if (list.hidden) seqDrawShapeList();
+    list.hidden = !list.hidden;
+  });
+  document.getElementById('seq-shape-list').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-shape]');
+    if (!b) return;
+    const s = b.dataset.shape;
+    document.getElementById('seq-shape-list').hidden = true;
+    if (s === 'mo' && seqLockedPrefix().length < 3) { showToast('Lock the opener plus at least 2 tracks under it first', 'error'); return; }
+    const apply = () => {
+      seqState.shape = s;
+      if (s !== 'sp') seqState.opener = seqState.order[0];
+      if (s === 'mo') {
+        const p = SEQ.profile(seqLockedPrefix().map(seqEngineTrack).filter(Boolean));
+        seqState.pulse = !!(p && p.turnRate >= 0.6);
+      }
+    };
+    if (s === 'sp') apply.toSp = true;
+    seqRebuild(apply, s === 'sp' ? 'Going back to the Spotify order' : 'Changing the shape');
+  });
+  // Pulse rebuilds the order under a shape; under Spotify current it just sets the switch for later
+  document.getElementById('seq-pulse').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pulse]');
+    if (!b) return;
+    const v = b.dataset.pulse === 'on';
+    if (v === seqState.pulse) return;
+    if (seqState.shape === 'sp') { seqState.pulse = v; seqRenderHeader(); showToast('Pulse applies once you pick a shape', 'success'); return; }
+    seqRebuild(() => { seqState.pulse = v; }, v ? 'Turning Pulse on' : 'Turning Pulse off');
+  });
+  document.getElementById('seq-confirm-go').addEventListener('click', () => {
+    document.getElementById('seq-confirm').hidden = true;
+    const a = seqState.pending; seqState.pending = null;
+    if (a) { a(); seqSequence(); }
+  });
+  document.getElementById('seq-confirm-cancel').addEventListener('click', () => {
+    document.getElementById('seq-confirm').hidden = true;
+    seqState.pending = null;
+  });
   document.getElementById('seq-line').addEventListener('click', (e) => {
     const b = e.target.closest('[data-line]');
     if (!b || b.dataset.line === seqState.line) return;
     seqState.line = b.dataset.line;
-    seqRenderHeader();
-    seqRenderList();
+    seqRender();
   });
-  // Tap a row to play it, same as Compatibility Mode rows
+
+  // ── Order list: locks, lock-above, play ──
   document.getElementById('seq-list').addEventListener('click', (e) => {
+    const st = seqState;
+    const la = e.target.closest('[data-lockall]');
+    if (la) {
+      const k = st.order.indexOf(la.dataset.lockall);
+      st.order.slice(1, k + 1).forEach(id => { if (seqScorable(seqTrack(id))) st.locks.add(id); });
+      st.lockMenu = null; seqRender();
+      showToast(`Locked the top ${k + 1} tracks`, 'success');
+      return;
+    }
+    const l1 = e.target.closest('[data-lockone]');
+    if (l1) { st.locks.add(l1.dataset.lockone); st.lockMenu = null; seqRender(); showToast('Locked: stays put when you re-sequence', 'success'); return; }
+    const lb = e.target.closest('[data-lock]');
+    if (lb) {
+      const id = lb.dataset.lock;
+      if (st.locks.has(id)) { st.locks.delete(id); st.lockMenu = null; seqRender(); showToast('Unlocked', 'success'); }
+      else { st.lockMenu = st.lockMenu === id ? null : id; seqRenderList(); }
+      return;
+    }
+    if (e.target.closest('[data-drag]')) return;
     const row = e.target.closest('.compat-row');
     if (!row) return;
     if (row.classList.contains('now-playing')) {
@@ -1849,6 +2099,53 @@
     const t = trackById.get(row.dataset.trackId);
     if (t) loadTrack(t, row);
   });
+
+  // ── Drag to reorder by the grip (never rebuilds; the opener stays first) ──
+  document.getElementById('seq-list').addEventListener('pointerdown', (e) => {
+    const h = e.target.closest('[data-drag]');
+    if (!h) return;
+    e.preventDefault();
+    const st = seqState, list = document.getElementById('seq-list');
+    st.dragId = h.dataset.drag; st.lockMenu = null;
+    seqRenderList();
+    let lastY = e.clientY, raf = null;
+    const place = () => {
+      const rows = [...list.querySelectorAll('.seq-row')];
+      let idx = rows.findIndex(r => { const b = r.getBoundingClientRect(); return lastY < b.top + b.height / 2; });
+      if (idx < 0) idx = rows.length;
+      idx = Math.max(1, idx);
+      const cur = st.order.indexOf(st.dragId);
+      if (idx !== cur && idx !== cur + 1) {
+        st.order.splice(cur, 1);
+        st.order.splice(idx > cur ? idx - 1 : idx, 0, st.dragId);
+        st.moved.add(st.dragId);
+        seqRenderList();
+      }
+    };
+    // Scroll the panel while the finger is near its top or bottom edge
+    const tick = () => {
+      const pr = seqPanel.getBoundingClientRect(), edge = 70;
+      let dy = 0;
+      if (lastY < pr.top + edge) dy = -Math.ceil((pr.top + edge - lastY) / 6);
+      else if (lastY > pr.bottom - edge) dy = Math.ceil((lastY - (pr.bottom - edge)) / 6);
+      if (dy) { seqPanel.scrollTop += dy; place(); }
+      raf = requestAnimationFrame(tick);
+    };
+    const move = (ev) => { lastY = ev.clientY; place(); };
+    const up = () => {
+      cancelAnimationFrame(raf);
+      st.dragId = null;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      seqRender();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    raf = requestAnimationFrame(tick);
+  });
+
   window.addEventListener('resize', () => { if (!seqPanel.hidden) requestAnimationFrame(seqDrawStrip); });
   document.getElementById('seq-open-btn').addEventListener('click', seqOpen);
   document.getElementById('seq-close').addEventListener('click', seqClose);
