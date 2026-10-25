@@ -719,6 +719,10 @@
     .seq-chart-meta { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.68rem; color: var(--text-muted); white-space: nowrap; }
     .seq-chart svg { width: 100%; height: auto; display: block; }
     .seq-chart-axis { display: flex; justify-content: space-between; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.63rem; color: var(--text-faint); margin-top: 2px; }
+    .seq-like { font-size: 0.78rem; color: var(--text-muted); margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+    .seq-like[hidden] { display: none; }
+    .seq-like-link { background: none; border: none; padding: 0; font: inherit; color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+    .seq-like-link.on { color: var(--accent); }
     .seq-empty { font-size: 0.78rem; color: var(--text-muted); padding: 10px 0; }
     .seq-order-head { display: flex; align-items: center; justify-content: space-between; margin: 0 0 8px; }
     .seq-order-head .compat-ctrl-label { color: var(--accent); }
@@ -1110,7 +1114,7 @@
         <span class="compat-ctrl-label" id="seq-summary-label">Energy</span>
         <svg class="chev" viewBox="0 0 12 8" fill="none"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
-      <div class="seq-summary-body"><div id="seq-charts"></div></div>
+      <div class="seq-summary-body"><div id="seq-charts"></div><div class="seq-like" id="seq-like" hidden></div></div>
     </div>
     <div class="compat-ctrl-grid" style="margin-top:0.85rem">
       <div class="seq-ctrl">
@@ -1745,7 +1749,7 @@
     pl: null, saved: [], order: [], missing: 0, line: 'e', collapsed: false,
     opener: null, shape: 'sp', pulse: false, prof: null,
     locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null,
-    inserted: new Set(), openBridges: new Set(), returnFromCompat: false
+    inserted: new Set(), openBridges: new Set(), returnFromCompat: false, likeOn: new Set()
   };
   const SEQ_ICON = {
     warn: '<svg viewBox="0 0 16 16" fill="none"><path d="M8 2l6.5 11.5h-13L8 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.6v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
@@ -1808,6 +1812,36 @@
       <svg viewBox="0 0 ${W} ${H}"><line x1="${p}" x2="${W - p}" y1="${H - p}" y2="${H - p}" stroke="#2a2a2a"/>${pts.length > 1 ? `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="1.6"/>` : ''}${pts.map(xy => { const [x, y] = xy.split(','); return `<circle cx="${x}" cy="${y}" r="2.4" fill="${col}"/>`; }).join('')}</svg>
       <div class="seq-chart-axis"><span>first</span><span>last</span></div></div>`;
   }
+  // Like comparisons (B-37 step 5): Dan's most recent playlists in the chosen shape, classified in the page
+  // (sequencer.js classifyShape, needs 5+ tracks with key, BPM and energy). Recency = newest liked track in it.
+  let seqShapeIndex = null;
+  function seqPlaylistTracks(pl) {
+    return (pl.trackIds || []).map(id => seqTrack(id)).filter(Boolean);
+  }
+  function seqBuildShapeIndex() {
+    seqShapeIndex = playlistsData
+      .filter(pl => !/^\s*(###|WIP\b)/i.test(pl.name || ''))
+      .map(pl => {
+        const tr = seqPlaylistTracks(pl);
+        const latest = tr.reduce((m, x) => ((x.t.addedAt || '') > m ? x.t.addedAt : m), '');
+        return { id: pl.id, name: (pl.name || '').trim(), shape: SEQ.classifyShape(tr), latest, pl };
+      })
+      .filter(x => x.shape)
+      .sort((a, b) => b.latest.localeCompare(a.latest));
+  }
+  function seqLikeExamples() {
+    const sh = seqState.shape;
+    if (!['lg', 'cl', 'rr', 'so'].includes(sh)) return [];
+    if (!seqShapeIndex) seqBuildShapeIndex();
+    return seqShapeIndex.filter(x => x.shape === sh && x.id !== seqState.pl.id).slice(0, isMobile() ? 2 : 3);
+  }
+  function seqRenderLike() {
+    const ex = seqLikeExamples(), el = document.getElementById('seq-like');
+    el.hidden = !ex.length;
+    el.innerHTML = ex.length ? '<span>Like:</span>' + ex.map(x => `<button type="button" class="seq-like-link${seqState.likeOn.has(x.id) ? ' on' : ''}" data-like="${escHtml(x.id)}">${escHtml(x.name)}</button>`).join('') : '';
+    return ex;
+  }
+
   function seqRenderHeader() {
     const pl = seqState.pl, order = seqState.order;
     document.getElementById('seq-pl-name').textContent = (pl.name || '').trim();
@@ -1820,9 +1854,15 @@
     document.getElementById('seq-summary-label').textContent = seqState.line === 'e' ? 'Energy' : 'BPM';
     const vals = order.map(id => { const x = seqTrack(id); return x ? (seqState.line === 'e' ? x.energy : x.bpm) : null; });
     const chartName = seqState.shape === 'sp' && !seqDiffers() ? 'Spotify current' : 'This order';
-    document.getElementById('seq-charts').innerHTML = order.length
+    const ex = seqRenderLike();
+    let charts = order.length
       ? seqChartHtml(chartName, vals, true)
       : '<div class="seq-empty">No tracks from this playlist are in the library yet.</div>';
+    ex.filter(x => seqState.likeOn.has(x.id)).forEach(x => {
+      const tr = seqPlaylistTracks(x.pl);
+      charts += seqChartHtml(x.name, tr.map(t => seqState.line === 'e' ? t.energy : t.bpm), false);
+    });
+    document.getElementById('seq-charts').innerHTML = charts;
     document.getElementById('seq-summary').classList.toggle('collapsed', seqState.collapsed);
     document.getElementById('seq-summary-head').setAttribute('aria-expanded', String(!seqState.collapsed));
     const op = seqTrack(order[0]);
@@ -2007,7 +2047,7 @@
       pl, saved: ids.slice(), order: ids.slice(), missing,   // saved = Spotify order as of the last Worker refresh
       opener: ids[0] || null, shape: 'sp', pulse: false, prof: null,
       locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null, warnedRest: false,
-      inserted: new Set(), openBridges: new Set(), returnFromCompat: false
+      inserted: new Set(), openBridges: new Set(), returnFromCompat: false, likeOn: new Set()
     });
     seqCloseMenus();
     document.getElementById('seq-confirm').hidden = true;
@@ -2075,6 +2115,7 @@
     document.getElementById('seq-shape-list').hidden = true;
     if (s === 'mo' && seqLockedPrefix().length < 3) { showToast('Lock the opener plus at least 2 tracks under it first', 'error'); return; }
     const apply = () => {
+      if (seqState.shape !== s) seqState.likeOn.clear();
       seqState.shape = s;
       if (s !== 'sp') seqState.opener = seqState.order[0];
       if (s === 'mo') {
@@ -2213,6 +2254,14 @@
   document.getElementById('seq-close').addEventListener('click', seqClose);
   seqBackdrop.addEventListener('click', seqClose);
   document.getElementById('seq-summary-head').addEventListener('click', seqToggleSummary);
+  document.getElementById('seq-like').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-like]');
+    if (!b) return;
+    const id = b.dataset.like, on = seqState.likeOn;
+    on.has(id) ? on.delete(id) : on.add(id);
+    seqRenderHeader();
+    requestAnimationFrame(seqDrawStrip);
+  });
   document.getElementById('seq-summary-head').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); seqToggleSummary(); }
   });
