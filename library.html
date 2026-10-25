@@ -752,6 +752,13 @@
     .compat-row.seq-drag { box-shadow: 0 0 0 1.5px var(--accent); }
     .compat-close-btn.seq-on { color: var(--accent); border-color: var(--accent); }
     .compat-close-btn svg.ic { width: 13px; height: 13px; }
+    .seq-bridges-toggle { background: none; border: none; padding: 0; font: inherit; font-size: 0.7rem; color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+    .seq-bridges { border: 1px dashed var(--border); border-radius: var(--radius); padding: 10px; margin: 0 0 8px; }
+    .seq-bridges .compat-source-label { display: block; margin-bottom: 8px; }
+    .seq-bridges .compat-row { margin-bottom: 6px; }
+    .seq-bridges-cm { background: none; border: none; padding: 0; font: inherit; font-size: 0.75rem; color: var(--accent); margin-top: 4px; cursor: pointer; text-align: left; }
+    .seq-bridges-none { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px; }
+    .seq-new { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.6rem; font-weight: 700; color: #000; background: var(--accent); border-radius: 4px; padding: 1px 4px; margin-left: 4px; vertical-align: 1px; }
     .seq-lockmenu { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin: 0 0 8px; }
 
     @media (max-width: 600px) {
@@ -1717,6 +1724,12 @@
   function compatClose() {
     compatBackdrop.hidden = true;
     compatPanel.hidden = true;
+    // Opened from a Sequencing bridge list: go back to the panel as it was
+    if (seqState.returnFromCompat) {
+      seqState.returnFromCompat = false;
+      seqBackdrop.hidden = false; seqPanel.hidden = false;
+      seqRender();
+    }
   }
 
   // ── Sequencing panel (B-37, build step 3). Read-only: nothing here writes to Spotify
@@ -1731,7 +1744,8 @@
   const seqState = {
     pl: null, saved: [], order: [], missing: 0, line: 'e', collapsed: false,
     opener: null, shape: 'sp', pulse: false, prof: null,
-    locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null
+    locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null,
+    inserted: new Set(), openBridges: new Set(), returnFromCompat: false
   };
   const SEQ_ICON = {
     warn: '<svg viewBox="0 0 16 16" fill="none"><path d="M8 2l6.5 11.5h-13L8 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.6v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
@@ -1835,7 +1849,26 @@
       ? { label: 'No key to judge', hue: '--text-faint', glyph: '·' }
       : seqTierLabel(SEQ.tier(a.camelot, b.camelot));
     const hue = weak ? '--red' : L.hue;
-    return `<div class="seq-trn" style="--tier-hue:var(${hue})"><span class="compat-tier-glyph">${weak ? SEQ_ICON.warn : L.glyph}</span><span class="compat-tier-name">${weak ? 'Weak · ' : ''}${L.label}</span>${seqDeltaHtml(a.bpm, b.bpm)}</div>`;
+    const open = weak && seqState.openBridges.has(b.id);
+    const toggle = weak ? `<button type="button" class="seq-bridges-toggle" data-br="${escHtml(b.id)}">${open ? 'hide' : 'bridges'}</button>` : '';
+    return `<div class="seq-trn" style="--tier-hue:var(${hue})"><span class="compat-tier-glyph">${weak ? SEQ_ICON.warn : L.glyph}</span><span class="compat-tier-name">${weak ? 'Weak · ' : ''}${L.label}</span>${toggle}${seqDeltaHtml(a.bpm, b.bpm)}</div>`
+      + (open ? seqBridgesHtml(a, b) : '');
+  }
+  // Bridges (B-37 step 4): up to 5 liked tracks in no playlist that fit both sides of a weak gap.
+  // + drops one into this gap only (no re-sequence); it reaches Spotify only when saved (step 6).
+  function seqBridgePool() {
+    const inOrder = new Set(seqState.order);
+    return allTracks.filter(t => !t.inPlaylist && !inOrder.has(String(t.id)))
+      .map(t => seqTrack(t.id)).filter(x => x && seqScorable(x) && x.energy != null);
+  }
+  function seqBridgesHtml(a, b) {
+    const picks = SEQ.suggestBridges(a, b, seqBridgePool(), 5);
+    const plus = '<svg viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+    const rows = picks.length
+      ? picks.map(x => compatRowHtml(x.t, false).replace(/<\/div>\s*$/, `<button type="button" class="compat-add-btn" data-insert="${escHtml(x.id)}" data-before="${escHtml(b.id)}" aria-label="Insert here">${plus}</button></div>`)).join('')
+      : '<div class="seq-bridges-none">No liked tracks outside your playlists fit this gap.</div>';
+    return `<div class="seq-bridges"><span class="compat-source-label">Bridges · not in any playlist</span>${rows}`
+      + `<button type="button" class="seq-bridges-cm" data-cm="${escHtml(a.id)}">Open Compatibility Mode from “${escHtml(a.t.title)}”</button></div>`;
   }
   function seqRowCtl(id, i, x) {
     if (i === 0) return '<div class="seq-row-ctl"><span class="seq-opener-tag">OPENER</span></div>';
@@ -1853,7 +1886,9 @@
       if (!x) return;
       if (i) html += seqTransitionHtml(i);
       const cls = 'compat-row seq-row' + (seqState.locks.has(id) ? ' seq-locked' : '') + (seqState.dragId === id ? ' seq-drag' : '');
-      html += compatRowHtml(x.t, false)
+      let rowHtml = compatRowHtml(x.t, false);
+      if (seqState.inserted.has(id)) rowHtml = rowHtml.replace(/(<div class="compat-row-title">)([\s\S]*?)(<\/div>)/, '$1$2<span class="seq-new">NEW</span>$3');
+      html += rowHtml
         .replace('class="compat-row', `class="${cls}`)
         .replace(/<\/div>\s*$/, seqRowCtl(id, i, x) + '</div>');
       if (seqState.lockMenu === id) {
@@ -1916,9 +1951,10 @@
   }
   function seqSequence() {
     const st = seqState;
-    st.moved.clear(); st.lockMenu = null;
-    if (st.shape === 'sp') {        // Spotify current: put back the order saved in Spotify
+    st.moved.clear(); st.lockMenu = null; st.openBridges.clear();
+    if (st.shape === 'sp') {        // Spotify current: put back the order saved in Spotify; unsaved inserts drop out
       st.order = st.saved.slice(); st.prof = null;
+      st.inserted.forEach(id => st.locks.delete(id)); st.inserted.clear();
       seqRender(); return;
     }
     const scorable = st.order.filter(id => seqEngineTrack(id));
@@ -1940,11 +1976,15 @@
   function seqRebuild(apply, label) {
     const st = seqState;
     const m = [...st.moved].filter(id => !st.locks.has(id) && st.order.includes(id)).length;
-    if (!m) { apply(); seqSequence(); return; }
+    const toSp = !!apply.toSp || (st.shape === 'sp' && label === 'Re-sequencing');
+    const ins = toSp ? st.inserted.size : 0;
+    if (!m && !ins) { apply(); seqSequence(); return; }
     st.pending = apply;
-    const toSp = !!apply.toSp;
+    const parts = [];
+    if (m) parts.push(`undo ${m} manual move${m > 1 ? 's' : ''}`);
+    if (ins) parts.push(`remove ${ins} inserted track${ins > 1 ? 's' : ''} you haven't saved`);
     document.getElementById('seq-confirm-msg').textContent =
-      `${label} will undo ${m} manual move${m > 1 ? 's' : ''}.` + (toSp ? '' : (m > 1 ? ' Lock them first to keep them where they are.' : ' Lock it first to keep it where it is.'));
+      `${label} will ${parts.join(' and ')}.` + (toSp || !m ? '' : (m > 1 ? ' Lock them first to keep them where they are.' : ' Lock it first to keep it where it is.'));
     document.getElementById('seq-confirm').hidden = false;
   }
   function seqCloseMenus() {
@@ -1966,7 +2006,8 @@
     Object.assign(seqState, {
       pl, saved: ids.slice(), order: ids.slice(), missing,   // saved = Spotify order as of the last Worker refresh
       opener: ids[0] || null, shape: 'sp', pulse: false, prof: null,
-      locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null, warnedRest: false
+      locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null, warnedRest: false,
+      inserted: new Set(), openBridges: new Set(), returnFromCompat: false
     });
     seqCloseMenus();
     document.getElementById('seq-confirm').hidden = true;
@@ -2072,6 +2113,27 @@
   // ── Order list: locks, lock-above, play ──
   document.getElementById('seq-list').addEventListener('click', (e) => {
     const st = seqState;
+    const br = e.target.closest('[data-br]');
+    if (br) { const id = br.dataset.br; st.openBridges.has(id) ? st.openBridges.delete(id) : st.openBridges.add(id); seqRenderList(); return; }
+    const ins = e.target.closest('[data-insert]');
+    if (ins) {
+      const id = ins.dataset.insert, before = ins.dataset.before, at = st.order.indexOf(before);
+      if (at < 1 || st.order.includes(id)) return;
+      st.order.splice(at, 0, id);
+      st.inserted.add(id);
+      st.openBridges.delete(before);
+      seqRender();
+      const t = trackById.get(id);
+      showToast(`Inserted “${t ? t.title : 'track'}”; nothing else moved`, 'success');
+      return;
+    }
+    const cm = e.target.closest('[data-cm]');
+    if (cm) {
+      st.returnFromCompat = true;
+      seqBackdrop.hidden = true; seqPanel.hidden = true;
+      compatOpen(cm.dataset.cm);
+      return;
+    }
     const la = e.target.closest('[data-lockall]');
     if (la) {
       const k = st.order.indexOf(la.dataset.lockall);
