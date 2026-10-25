@@ -1157,7 +1157,7 @@
     <svg class="seq-strip" id="seq-strip" aria-hidden="true"></svg>
   </div>
   <div class="seq-actions">
-    <button type="button" class="btn" id="seq-upd" disabled title="Coming next">Update this playlist</button>
+    <button type="button" class="btn" id="seq-upd">Update this playlist</button>
     <button type="button" class="btn btn-ghost" id="seq-cpy">Save as copy</button>
   </div>
   <div id="seq-save-confirm" class="seq-confirm" hidden>
@@ -2344,13 +2344,18 @@
     if (plan.extra) msg += ` ${plan.extra} track${plan.extra > 1 ? 's' : ''} not in the library ${plan.extra > 1 ? 'go' : 'goes'} at the end.`;
     if (plan.skipped) msg += ` ${plan.skipped} local file${plan.skipped > 1 ? 's' : ''} can’t be copied.`;
     msg += ' Your original playlist isn’t touched.';
+    seqState.saveMode = 'copy';
+    document.getElementById('seq-save-go').textContent = 'Create it';
     document.getElementById('seq-save-msg').textContent = msg;
     document.getElementById('seq-save-confirm').hidden = false;
   });
   document.getElementById('seq-save-cancel').addEventListener('click', () => { document.getElementById('seq-save-confirm').hidden = true; });
-  document.getElementById('seq-save-go').addEventListener('click', async () => {
-    const st = seqState, status = document.getElementById('seq-save-status'), btn = document.getElementById('seq-cpy');
+  document.getElementById('seq-save-go').addEventListener('click', () => {
     document.getElementById('seq-save-confirm').hidden = true;
+    if (seqState.saveMode === 'update') seqRunUpdate(); else seqRunCopy();
+  });
+  async function seqRunCopy() {
+    const st = seqState, status = document.getElementById('seq-save-status'), btn = document.getElementById('seq-cpy');
     if (st.saving) return;
     st.saving = true; btn.disabled = true;
     const plan = seqCopyPlan();
@@ -2368,7 +2373,101 @@
     } finally {
       st.saving = false; btn.disabled = false;
     }
+  }
+
+  // Update this playlist: reorder IN PLACE with one move per out-of-place track
+  // (PUT /playlists/{id}/items with range_start / insert_before), so every track keeps its
+  // "date added" (the homepage sorts mixes by oldestAddedAt). Never replaces the list.
+  // Inserted bridges are added first (at the end), then moved into place. Tracks not in the
+  // library, local files and duplicates are never moved; they end up after the order on screen.
+  const seqKnownUnique = (live) => { const seen = new Set(), out = []; live.forEach(id => { if (id && !seen.has(id) && trackById.has(id)) { seen.add(id); out.push(id); } }); return out; };
+  const seqSameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+  // Plan the moves on a model of the playlist: entries [{ id }] in Spotify order
+  function seqPlanMoves(live, order) {
+    const cur = live.map(id => ({ id })), used = new Set(), target = [];
+    order.forEach(id => { const e = cur.find(x => x.id === id && !used.has(x)); if (e) { used.add(e); target.push(e); } });
+    cur.forEach(e => { if (!used.has(e)) target.push(e); });
+    const sim = cur.slice(), moves = [];
+    target.forEach((e, i) => {
+      const j = sim.indexOf(e);
+      if (j !== i) { moves.push({ from: j, to: i }); sim.splice(j, 1); sim.splice(i, 0, e); }
+    });
+    return moves;
+  }
+  document.getElementById('seq-upd').addEventListener('click', async () => {
+    const st = seqState, status = document.getElementById('seq-save-status');
+    if (st.saving) return;
+    if (!addReady()) return;
+    status.textContent = 'Checking the playlist in Spotify…';
+    const live = await seqFetchLiveIds(st.pl.id);
+    if (!live) { status.textContent = 'Couldn’t read the playlist from Spotify. Nothing was changed.'; return; }
+    if (!seqSameList(seqKnownUnique(live), st.saved)) {
+      status.textContent = 'This playlist changed in Spotify since the panel opened. Close and reopen Sequencing, then try again. Nothing was changed.';
+      return;
+    }
+    const adds = st.order.filter(id => !live.includes(id));
+    const moves = seqPlanMoves(live.concat(adds), st.order);
+    status.textContent = '';
+    if (!adds.length && !moves.length) { status.textContent = 'Spotify already has this order. Nothing to save.'; return; }
+    st.updatePlan = { live, adds };
+    let msg = `Reorder “${(st.pl.name || '').trim()}” in Spotify? ${moves.length} move${moves.length === 1 ? '' : 's'}`;
+    if (adds.length) msg += `, plus ${adds.length} inserted track${adds.length > 1 ? 's' : ''} added`;
+    msg += '. Dates added are kept.';
+    const others = live.length - seqKnownUnique(live).length;
+    if (others) msg += ` ${others} track${others > 1 ? 's' : ''} not in the library (or duplicates/local files) stay at the end.`;
+    st.saveMode = 'update';
+    document.getElementById('seq-save-go').textContent = 'Reorder it';
+    document.getElementById('seq-save-msg').textContent = msg;
+    document.getElementById('seq-save-confirm').hidden = false;
   });
+  async function seqRunUpdate() {
+    const st = seqState, status = document.getElementById('seq-save-status');
+    const btns = [document.getElementById('seq-upd'), document.getElementById('seq-cpy')];
+    if (st.saving || !st.updatePlan) return;
+    st.saving = true; btns.forEach(b => b.disabled = true);
+    const plId = encodeURIComponent(st.pl.id), name = (st.pl.name || '').trim();
+    let done = 0, total = 0;
+    try {
+      // Re-check right before writing: stop if anything changed since the confirm
+      status.textContent = 'Checking the playlist in Spotify…';
+      const live = await seqFetchLiveIds(st.pl.id);
+      if (!live || !seqSameList(live, st.updatePlan.live)) { status.textContent = 'The playlist changed in Spotify. Nothing was changed; reopen Sequencing and try again.'; return; }
+      const adds = st.order.filter(id => !live.includes(id));
+      let snap = null;
+      if (adds.length) {
+        status.textContent = `Adding ${adds.length} inserted track${adds.length > 1 ? 's' : ''}…`;
+        for (let i = 0; i < adds.length; i += 100) {
+          const r = await spotifyFetch('POST', `/playlists/${plId}/items`, { uris: adds.slice(i, i + 100).map(id => 'spotify:track:' + id) });
+          if (!r) { status.textContent = 'Stopped while adding inserted tracks. Reopen Sequencing to see where the playlist is.'; return; }
+          snap = r.snapshot_id || snap;
+        }
+      }
+      if (!snap) {
+        const meta = await spotifyFetch('GET', `/playlists/${plId}?fields=snapshot_id`);
+        if (!meta || !meta.snapshot_id) { status.textContent = 'Couldn’t read the playlist version from Spotify. Nothing was moved.'; return; }
+        snap = meta.snapshot_id;
+      }
+      const moves = seqPlanMoves(live.concat(adds), st.order);
+      total = moves.length;
+      for (const m of moves) {
+        status.textContent = `Moving tracks… ${done + 1} of ${total}`;
+        const r = await spotifyFetch('PUT', `/playlists/${plId}/items`, { range_start: m.from, insert_before: m.to, range_length: 1, snapshot_id: snap });
+        if (!r) { status.textContent = `Stopped after ${done} of ${total} moves; the playlist is partly reordered. Reopen Sequencing and Update again to finish.`; return; }
+        snap = r.snapshot_id || snap;
+        done++;
+      }
+      // Saved: this order is the new Spotify current
+      st.saved = st.order.slice();
+      st.liveAll = null;
+      st.inserted.clear(); st.moved.clear(); st.updatePlan = null;
+      st.srcNote = 'Live from Spotify (just saved)';
+      seqRender();
+      status.textContent = `Saved: “${name}” in Spotify now matches this order.`;
+      showToast('Updated ' + name, 'success');
+    } finally {
+      st.saving = false; btns.forEach(b => b.disabled = false);
+    }
+  }
   window.addEventListener('resize', () => { if (!seqPanel.hidden) requestAnimationFrame(seqDrawStrip); });
   document.getElementById('seq-open-btn').addEventListener('click', seqOpen);
   document.getElementById('seq-close').addEventListener('click', seqClose);
