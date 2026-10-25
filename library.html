@@ -723,6 +723,13 @@
     .seq-like[hidden] { display: none; }
     .seq-like-link { background: none; border: none; padding: 0; font: inherit; color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
     .seq-like-link.on { color: var(--accent); }
+    .seq-fill-row { display: flex; align-items: center; gap: 6px; }
+    .seq-fill-row .pf-btn[data-fill-step] { width: 30px; padding-left: 0; padding-right: 0; text-align: center; }
+    #seq-fill-n { min-width: 2.2ch; text-align: center; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.82rem; }
+    #seq-fill-go { margin-left: auto; }
+    #seq-tpl-list[hidden] { display: none; }
+    .seq-hint { font-size: 0.7rem; color: var(--text-muted); margin: -2px 0 0 72px; }
+    .seq-hint[hidden] { display: none; }
     .seq-src { font-size: 0.7rem; color: var(--text-faint); margin-top: 2px; }
     .seq-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 1rem; }
     .seq-actions .btn { padding: 0.65rem 0.5rem; font-size: 0.82rem; }
@@ -769,7 +776,7 @@
     .seq-bridges .compat-row { margin-bottom: 6px; }
     .seq-bridges-cm { background: none; border: none; padding: 0; font: inherit; font-size: 0.75rem; color: var(--accent); margin-top: 4px; cursor: pointer; text-align: left; }
     .seq-bridges-none { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px; }
-    .seq-new { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.6rem; font-weight: 700; color: #000; background: var(--accent); border-radius: 4px; padding: 1px 4px; margin-left: 4px; vertical-align: 1px; }
+    .seq-new { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.6rem; font-weight: 700; color: #000; background: var(--accent); border-radius: 4px; padding: 1px 4px; margin-right: 5px; vertical-align: 1px; }
     .seq-lockmenu { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin: 0 0 8px; }
 
     @media (max-width: 600px) {
@@ -1138,6 +1145,20 @@
       <div class="seq-ctrl">
         <span class="compat-ctrl-label">Pulse</span>
         <div class="playlist-filter-btns" id="seq-pulse"><button type="button" class="pf-btn active" data-pulse="off">Smooth</button><button type="button" class="pf-btn" data-pulse="on">Pulse</button></div>
+      </div>
+      <div class="seq-ctrl">
+        <span class="compat-ctrl-label">Like</span>
+        <button type="button" class="compat-target-btn seq-wide" id="seq-tpl-btn"><span id="seq-tpl-name"></span><svg viewBox="0 0 12 8" fill="none"><path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
+      <div id="seq-tpl-list" class="seq-pick" hidden></div>
+      <div class="seq-hint" id="seq-tpl-hint" hidden>Applies on the next Fill or Re-sequence</div>
+      <div class="seq-ctrl">
+        <span class="compat-ctrl-label">Pool</span>
+        <div class="playlist-filter-btns" id="seq-pool"><button type="button" class="pf-btn active" data-pool="out">Out ✗</button><button type="button" class="pf-btn active" data-pool="hash">### only</button></div>
+      </div>
+      <div class="seq-ctrl">
+        <span class="compat-ctrl-label">Fill</span>
+        <div class="seq-fill-row"><button type="button" class="pf-btn" data-fill-step="-1" aria-label="Fewer tracks">−</button><span id="seq-fill-n">28</span><button type="button" class="pf-btn" data-fill-step="1" aria-label="More tracks">+</button><button type="button" class="pf-btn active" id="seq-fill-go">Fill</button></div>
       </div>
       <div id="seq-confirm" class="seq-confirm" hidden>
         <div id="seq-confirm-msg"></div>
@@ -1767,7 +1788,8 @@
     opener: null, shape: 'sp', pulse: false, prof: null,
     locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null,
     inserted: new Set(), openBridges: new Set(), returnFromCompat: false, likeOn: new Set(),
-    liveAll: null, srcNote: '', loadToken: 0, saving: false
+    liveAll: null, srcNote: '', loadToken: 0, saving: false,
+    tplIds: [], tpl: null, fillN: 28, poolOut: true, poolHash: true, rejected: new Set(), userUnlocked: new Set()
   };
   const SEQ_ICON = {
     warn: '<svg viewBox="0 0 16 16" fill="none"><path d="M8 2l6.5 11.5h-13L8 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.6v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
@@ -1888,6 +1910,7 @@
     document.getElementById('seq-op-name').textContent = op ? op.t.title : '—';
     document.getElementById('seq-shape-name').textContent = SEQ.SHAPES[seqState.shape];
     document.querySelectorAll('#seq-pulse .pf-btn').forEach(b => b.classList.toggle('active', (b.dataset.pulse === 'on') === seqState.pulse));
+    seqRenderFillCtl();
   }
 
   // Transition labels: same names, glyphs and hues as COMPAT_TIERS, plus same-key and off-chart
@@ -1946,7 +1969,7 @@
       if (i) html += seqTransitionHtml(i);
       const cls = 'compat-row seq-row' + (seqState.locks.has(id) ? ' seq-locked' : '') + (seqState.dragId === id ? ' seq-drag' : '');
       let rowHtml = compatRowHtml(x.t, false);
-      if (seqState.inserted.has(id)) rowHtml = rowHtml.replace(/(<div class="compat-row-title">)([\s\S]*?)(<\/div>)/, '$1$2<span class="seq-new">NEW</span>$3');
+      if (seqState.inserted.has(id)) rowHtml = rowHtml.replace('<div class="compat-row-artist">', '<div class="compat-row-artist"><span class="seq-new">NEW</span>');
       html += rowHtml
         .replace('class="compat-row', `class="${cls}`)
         .replace(/<\/div>\s*$/, seqRowCtl(id, i, x) + '</div>');
@@ -1981,7 +2004,7 @@
     let band = '';
     const o = seqEngineTrack(seqState.order[0]);
     if (seqState.shape !== 'sp' && o && rows.length > 1) {
-      const n = rows.length, ctx = { shape: seqState.shape, pulse: seqState.pulse, prof: seqState.prof };
+      const n = rows.length, ctx = { shape: seqState.shape, pulse: seqState.pulse, prof: seqState.prof, tpl: seqState.tpl };
       const L = [], R = [];
       ys.forEach((y, i) => {
         const t = SEQ.shapeTarget(n > 1 ? i / (n - 1) : 0, n, o, ctx);
@@ -2025,7 +2048,7 @@
     scorable.forEach((id, i) => { if (i && st.locks.has(id) && id !== st.opener) lockedAt[i] = id; });
     // The opener might currently sit further down; the engine always puts it first
     if (scorable[0] !== st.opener) Object.keys(lockedAt).forEach(k => { if (lockedAt[k] === st.opener) delete lockedAt[k]; });
-    const res = SEQ.sequence({ tracks: scorable.map(seqEngineTrack), openerId: st.opener, shape: st.shape, pulse: st.pulse, lockedAt });
+    const res = SEQ.sequence({ tracks: scorable.map(seqEngineTrack), openerId: st.opener, shape: st.shape, pulse: st.pulse, lockedAt, tpl: st.tpl });
     st.prof = res.prof;
     st.order = res.order.concat(rest);
     seqRender();
@@ -2067,7 +2090,8 @@
       opener: ids[0] || null, shape: 'sp', pulse: false, prof: null,
       locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null, warnedRest: false,
       inserted: new Set(), openBridges: new Set(), returnFromCompat: false, likeOn: new Set(),
-      liveAll: null, srcNote: 'Order from the last library refresh', loadToken: seqState.loadToken + 1, saving: false
+      liveAll: null, srcNote: 'Order from the last library refresh', loadToken: seqState.loadToken + 1, saving: false,
+      tplIds: [], tpl: null, fillN: ids.length < 28 ? 28 : ids.length + 10, poolOut: true, poolHash: true, rejected: new Set(), userUnlocked: new Set()
     });
     seqCloseMenus();
     document.getElementById('seq-confirm').hidden = true;
@@ -2092,6 +2116,7 @@
   // ── Controls ──
   document.getElementById('seq-reseq').addEventListener('click', () => {
     seqCloseMenus();
+    document.getElementById('seq-tpl-hint').hidden = true;
     seqRebuild(() => {}, 'Re-sequencing');
   });
   // Opener: pick any track with a key and BPM
@@ -2207,11 +2232,11 @@
       return;
     }
     const l1 = e.target.closest('[data-lockone]');
-    if (l1) { st.locks.add(l1.dataset.lockone); st.lockMenu = null; seqRender(); showToast('Locked: stays put when you re-sequence', 'success'); return; }
+    if (l1) { st.userUnlocked.delete(l1.dataset.lockone); st.locks.add(l1.dataset.lockone); st.lockMenu = null; seqRender(); showToast('Locked: stays put when you re-sequence', 'success'); return; }
     const lb = e.target.closest('[data-lock]');
     if (lb) {
       const id = lb.dataset.lock;
-      if (st.locks.has(id)) { st.locks.delete(id); st.lockMenu = null; seqRender(); showToast('Unlocked', 'success'); }
+      if (st.locks.has(id)) { st.locks.delete(id); st.userUnlocked.add(id); st.lockMenu = null; seqRender(); showToast('Unlocked', 'success'); }
       else { st.lockMenu = st.lockMenu === id ? null : id; seqRenderList(); }
       return;
     }
@@ -2272,6 +2297,115 @@
     raf = requestAnimationFrame(tick);
   });
 
+
+  // ── Fill (B-38): add tracks that fit the shape, or the feel of chosen "Like" sets ──
+  // Pool: liked tracks in no playlist (Out ✗) and/or tracks whose only playlist is "###".
+  // The playlist's own tracks are locked first (unless unlocked by hand); picks drop in tagged NEW;
+  // tapping Fill again (Refill) swaps the unlocked NEW tracks for different ones. Nothing is saved
+  // to Spotify until Update this playlist.
+  const SEQ_HASH_NAME = '###';
+  function seqTplCandidates() {
+    if (!seqShapeIndex) seqBuildShapeIndex();
+    const sh = seqState.shape, rec = ['lg', 'cl', 'rr', 'so'].includes(sh) ? seqShapeIndex.filter(x => x.shape === sh) : [];
+    const rest = seqShapeIndex.filter(x => !rec.includes(x));
+    return rec.concat(rest).filter(x => x.id !== seqState.pl.id);
+  }
+  function seqSetTemplate(ids) {
+    const st = seqState;
+    st.tplIds = ids.slice(0, 3);
+    const sets = st.tplIds.map(id => playlistsData.find(p => p.id === id)).filter(Boolean)
+      .map(pl => seqPlaylistTracks(pl).map(x => ({ id: x.id, camelot: x.camelot, bpm: x.bpm, energy: x.energy })));
+    st.tpl = sets.length ? SEQ.buildTemplate(sets) : null;
+  }
+  function seqRenderFillCtl() {
+    const st = seqState;
+    const names = st.tplIds.map(id => { const p = playlistsData.find(q => q.id === id); return p ? (p.name || '').trim() : ''; }).filter(Boolean);
+    const four = ['lg', 'cl', 'rr', 'so'].includes(st.shape);
+    document.getElementById('seq-tpl-name').textContent = names.length ? names.join(' + ') : (four ? `${SEQ.SHAPES[st.shape]} curve` : 'The shape’s own curve');
+    document.querySelectorAll('#seq-pool .pf-btn').forEach(b => b.classList.toggle('active', b.dataset.pool === 'out' ? st.poolOut : st.poolHash));
+    document.getElementById('seq-fill-n').textContent = st.fillN;
+    const refill = [...st.inserted].some(id => !st.locks.has(id));
+    document.getElementById('seq-fill-go').textContent = refill ? 'Refill' : 'Fill';
+  }
+  function seqDrawTplList() {
+    const st = seqState, cands = seqTplCandidates();
+    let h = `<button type="button" data-tpl="" class="${st.tplIds.length ? '' : 'on'}">None<span class="seq-pick-sub">Use the shape's own curve</span></button><div class="seq-pick-sep"></div>`;
+    h += cands.slice(0, 30).map(x => `<button type="button" data-tpl="${escHtml(x.id)}" class="${st.tplIds.includes(x.id) ? 'on' : ''}">${escHtml(x.name)}<span class="seq-pick-sub">${escHtml(SEQ.SHAPES[x.shape])}</span></button>`).join('');
+    document.getElementById('seq-tpl-list').innerHTML = h;
+  }
+  document.getElementById('seq-tpl-btn').addEventListener('click', () => {
+    const list = document.getElementById('seq-tpl-list');
+    document.getElementById('seq-op-list').hidden = true;
+    document.getElementById('seq-shape-list').hidden = true;
+    if (list.hidden) seqDrawTplList();
+    list.hidden = !list.hidden;
+  });
+  document.getElementById('seq-tpl-list').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tpl]');
+    if (!b) return;
+    const st = seqState, id = b.dataset.tpl;
+    let ids = st.tplIds.slice();
+    if (!id) ids = [];
+    else if (ids.includes(id)) ids = ids.filter(x => x !== id);
+    else if (ids.length >= 3) { showToast('Pick up to 3 sets', 'error'); return; }
+    else ids.push(id);
+    seqSetTemplate(ids);
+    if (st.tpl) st.pulse = st.tpl.turnRate >= 0.6;   // sets that zigzag (bT2's opening) turn Pulse on
+    seqDrawTplList();
+    seqRenderHeader();
+    document.getElementById('seq-tpl-hint').hidden = false;
+  });
+  document.getElementById('seq-pool').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pool]');
+    if (!b) return;
+    if (b.dataset.pool === 'out') seqState.poolOut = !seqState.poolOut; else seqState.poolHash = !seqState.poolHash;
+    seqRenderFillCtl();
+  });
+  document.querySelector('.seq-fill-row').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-fill-step]');
+    if (!b) return;
+    seqState.fillN = Math.max(2, Math.min(120, seqState.fillN + Number(b.dataset.fillStep)));
+    seqRenderFillCtl();
+  });
+  function seqFillPool(exclude) {
+    const st = seqState;
+    return allTracks.filter(t => {
+      const id = String(t.id);
+      if (exclude.has(id)) return false;
+      const names = (t.playlistNames || []).map(n => n.trim());
+      return (st.poolOut && !t.inPlaylist) || (st.poolHash && names.length === 1 && names[0] === SEQ_HASH_NAME);
+    }).map(t => seqEngineTrack(t.id)).filter(x => x && x.energy != null);
+  }
+  document.getElementById('seq-fill-go').addEventListener('click', () => {
+    const st = seqState;
+    seqCloseMenus(); document.getElementById('seq-tpl-list').hidden = true;
+    if (!st.poolOut && !st.poolHash) { showToast('Turn on at least one pool', 'error'); return; }
+    // Refill: unlocked NEW tracks from the last fill go back, and won't be picked again this session
+    const drop = [...st.inserted].filter(id => !st.locks.has(id));
+    const base = st.order.filter(id => !drop.includes(id));
+    const count = st.fillN - base.length;
+    if (count <= 0) { showToast(`Already ${base.length} tracks; raise the Fill number`, 'error'); return; }
+    const exclude = new Set([...base, ...drop, ...st.rejected]);
+    st.tplIds.forEach(pid => { const p = playlistsData.find(q => q.id === pid); (p && p.trackIds || []).forEach(id => exclude.add(String(id))); });
+    const pool = seqFillPool(exclude);
+    if (!pool.length) { showToast('No tracks left in the pool', 'error'); return; }
+    const prefix = base.map(seqEngineTrack).filter(Boolean);
+    if (!prefix.length) { showToast('The playlist needs a track with a key and BPM to start from', 'error'); return; }
+    const shape = ['lg', 'cl', 'rr', 'so'].includes(st.shape) ? st.shape : 'lg';
+    const picks = SEQ.fill({ prefix, pool, count, shape, pulse: st.pulse, tpl: st.tpl });
+    if (!picks.length) { showToast('No tracks fit; try another pool or shape', 'error'); return; }
+    seqRebuild(() => {
+      drop.forEach(id => { st.inserted.delete(id); st.rejected.add(id); });
+      st.order = base.slice();
+      // Lock the playlist's own tracks where they are, unless unlocked by hand
+      st.order.forEach((id, i) => { if (i && !st.inserted.has(id) && !st.userUnlocked.has(id) && seqScorable(seqTrack(id))) st.locks.add(id); });
+      st.order = st.order.concat(picks);
+      picks.forEach(id => st.inserted.add(id));
+      st.shape = shape;
+      document.getElementById('seq-tpl-hint').hidden = true;
+      showToast(`${drop.length ? 'Refilled' : 'Added'} ${picks.length} tracks; review, then Update`, 'success');
+    }, drop.length ? 'Refilling' : 'Filling');
+  });
 
   // ── Spotify (B-37 step 6) ──
   // Live order on open: reads the playlist's items with the phone's Spotify login (1 call per 100 tracks).
