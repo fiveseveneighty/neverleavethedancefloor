@@ -723,6 +723,13 @@
     .seq-like[hidden] { display: none; }
     .seq-like-link { background: none; border: none; padding: 0; font: inherit; color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
     .seq-like-link.on { color: var(--accent); }
+    .seq-src { font-size: 0.7rem; color: var(--text-faint); margin-top: 2px; }
+    .seq-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 1rem; }
+    .seq-actions .btn { padding: 0.65rem 0.5rem; font-size: 0.82rem; }
+    .seq-actions .btn-ghost { border: 1px solid var(--border); background: var(--bg); }
+    .seq-actions .btn:disabled { opacity: 0.45; cursor: default; }
+    #seq-save-confirm { margin-top: 10px; }
+    #seq-save-status { min-height: 18px; margin-top: 8px; text-align: center; font-size: 0.75rem; color: var(--text-muted); }
     .seq-empty { font-size: 0.78rem; color: var(--text-muted); padding: 10px 0; }
     .seq-order-head { display: flex; align-items: center; justify-content: space-between; margin: 0 0 8px; }
     .seq-order-head .compat-ctrl-label { color: var(--accent); }
@@ -1109,6 +1116,7 @@
       <button type="button" class="pf-btn seq-reseq" id="seq-reseq"><svg viewBox="0 0 16 16" fill="none"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Re-sequence</button>
     </div>
     <div class="seq-sub" id="seq-sub"></div>
+    <div class="seq-src" id="seq-src"></div>
     <div class="seq-summary" id="seq-summary">
       <div class="seq-summary-head" id="seq-summary-head" role="button" tabindex="0" aria-expanded="true">
         <span class="compat-ctrl-label" id="seq-summary-label">Energy</span>
@@ -1148,6 +1156,15 @@
     <div id="seq-list"></div>
     <svg class="seq-strip" id="seq-strip" aria-hidden="true"></svg>
   </div>
+  <div class="seq-actions">
+    <button type="button" class="btn" id="seq-upd" disabled title="Coming next">Update this playlist</button>
+    <button type="button" class="btn btn-ghost" id="seq-cpy">Save as copy</button>
+  </div>
+  <div id="seq-save-confirm" class="seq-confirm" hidden>
+    <div id="seq-save-msg"></div>
+    <div class="seq-confirm-btns"><button type="button" class="pf-btn" id="seq-save-cancel">Cancel</button><button type="button" class="pf-btn active" id="seq-save-go">Create it</button></div>
+  </div>
+  <div id="seq-save-status" role="status" aria-live="polite"></div>
 </div>
 <div id="plpick-backdrop" hidden></div>
 <div id="plpick-sheet" role="dialog" aria-modal="true" aria-labelledby="plpick-heading" hidden>
@@ -1749,7 +1766,8 @@
     pl: null, saved: [], order: [], missing: 0, line: 'e', collapsed: false,
     opener: null, shape: 'sp', pulse: false, prof: null,
     locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null,
-    inserted: new Set(), openBridges: new Set(), returnFromCompat: false, likeOn: new Set()
+    inserted: new Set(), openBridges: new Set(), returnFromCompat: false, likeOn: new Set(),
+    liveAll: null, srcNote: '', loadToken: 0, saving: false
   };
   const SEQ_ICON = {
     warn: '<svg viewBox="0 0 16 16" fill="none"><path d="M8 2l6.5 11.5h-13L8 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.6v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
@@ -1851,6 +1869,7 @@
       : `<span class="ok">no weak spots</span>`);
     if (seqState.missing) sub += ` · ${seqState.missing} not in the library`;
     document.getElementById('seq-sub').innerHTML = sub;
+    document.getElementById('seq-src').textContent = seqState.srcNote;
     document.getElementById('seq-summary-label').textContent = seqState.line === 'e' ? 'Energy' : 'BPM';
     const vals = order.map(id => { const x = seqTrack(id); return x ? (seqState.line === 'e' ? x.energy : x.bpm) : null; });
     const chartName = seqState.shape === 'sp' && !seqDiffers() ? 'Spotify current' : 'This order';
@@ -2047,14 +2066,18 @@
       pl, saved: ids.slice(), order: ids.slice(), missing,   // saved = Spotify order as of the last Worker refresh
       opener: ids[0] || null, shape: 'sp', pulse: false, prof: null,
       locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null, warnedRest: false,
-      inserted: new Set(), openBridges: new Set(), returnFromCompat: false, likeOn: new Set()
+      inserted: new Set(), openBridges: new Set(), returnFromCompat: false, likeOn: new Set(),
+      liveAll: null, srcNote: 'Order from the last library refresh', loadToken: seqState.loadToken + 1, saving: false
     });
     seqCloseMenus();
     document.getElementById('seq-confirm').hidden = true;
     seqBackdrop.hidden = false;
     seqPanel.hidden = false;
+    document.getElementById('seq-save-confirm').hidden = true;
+    document.getElementById('seq-save-status').textContent = '';
     seqRender();
     seqPanel.scrollTop = 0;
+    seqLoadLive(seqState.loadToken);
   }
   function seqClose() {
     seqBackdrop.hidden = true;
@@ -2249,6 +2272,103 @@
     raf = requestAnimationFrame(tick);
   });
 
+
+  // ── Spotify (B-37 step 6) ──
+  // Live order on open: reads the playlist's items with the phone's Spotify login (1 call per 100 tracks).
+  // Needs the playlist scopes Add to already uses; without a login the panel keeps the stored order.
+  async function seqFetchLiveIds(plId) {
+    const ids = [];
+    let path = `/playlists/${encodeURIComponent(plId)}/items?fields=items(item(id,type)),next&limit=100`;
+    for (let page = 0; path && page < 20; page++) {
+      const data = await spotifyFetch('GET', path);
+      if (!data || !Array.isArray(data.items)) return null;
+      data.items.forEach(e => {
+        const it = e && e.item;
+        ids.push(it && it.id && (!it.type || it.type === 'track') ? String(it.id) : null); // null = local file / episode
+      });
+      path = data.next ? data.next.replace('https://api.spotify.com/v1', '') : null;
+    }
+    return ids;
+  }
+  async function seqLoadLive(token) {
+    const st = seqState;
+    if (!getTokens() || !hasAddScopes()) { st.srcNote = 'Order from the last library refresh (connect Spotify for the live order)'; seqRenderHeader(); return; }
+    st.srcNote = 'Checking Spotify for the live order…'; seqRenderHeader();
+    const live = await seqFetchLiveIds(st.pl.id);
+    if (token !== st.loadToken) return;              // panel was reopened meanwhile
+    if (!live) { st.srcNote = 'Couldn’t read Spotify; order from the last library refresh'; seqRenderHeader(); return; }
+    st.liveAll = live;
+    const seen = new Set(), ids = [];
+    let missing = 0;
+    live.forEach(id => {
+      if (!id) { missing++; return; }
+      if (seen.has(id)) return;
+      seen.add(id);
+      if (trackById.has(id)) ids.push(id); else missing++;
+    });
+    const same = ids.length === st.saved.length && ids.every((id, i) => id === st.saved[i]);
+    st.missing = missing;
+    if (same) { st.srcNote = 'Live from Spotify'; seqRenderHeader(); return; }
+    const untouched = st.shape === 'sp' && !st.moved.size && !st.inserted.size && !seqDiffers();
+    st.saved = ids.slice();
+    if (untouched) {
+      st.order = ids.slice();
+      st.srcNote = 'Live from Spotify (changed since the last library refresh)';
+      seqRender();
+    } else {
+      st.srcNote = 'Spotify’s order changed since the last refresh; Spotify current now uses the live order';
+      seqRenderHeader();
+    }
+  }
+
+  // Save as copy: a new PRIVATE playlist "<name> (sequenced)" in this order. Private keeps it off the
+  // homepage (the mixes Worker skips public === false). Tracks not in the library go at the end;
+  // local files and episodes can't be added by the API and are left out.
+  function seqCopyPlan() {
+    const st = seqState, order = st.order.slice(), inOrder = new Set(order);
+    const source = st.liveAll || (st.pl.trackIds || []).map(String);
+    const extra = [];
+    let skipped = 0;
+    source.forEach(id => {
+      if (!id) { skipped++; return; }
+      if (inOrder.has(id) || extra.includes(id)) return;
+      extra.push(id);
+    });
+    return { uris: order.concat(extra).map(id => 'spotify:track:' + id), extra: extra.length, skipped, name: `${(st.pl.name || '').trim()} (sequenced)` };
+  }
+  document.getElementById('seq-cpy').addEventListener('click', () => {
+    if (seqState.saving) return;
+    if (!addReady()) return;      // sends to Spotify login if the playlist scopes are missing
+    const plan = seqCopyPlan();
+    let msg = `Create a private playlist “${plan.name}” with ${plan.uris.length} tracks in this order?`;
+    if (plan.extra) msg += ` ${plan.extra} track${plan.extra > 1 ? 's' : ''} not in the library ${plan.extra > 1 ? 'go' : 'goes'} at the end.`;
+    if (plan.skipped) msg += ` ${plan.skipped} local file${plan.skipped > 1 ? 's' : ''} can’t be copied.`;
+    msg += ' Your original playlist isn’t touched.';
+    document.getElementById('seq-save-msg').textContent = msg;
+    document.getElementById('seq-save-confirm').hidden = false;
+  });
+  document.getElementById('seq-save-cancel').addEventListener('click', () => { document.getElementById('seq-save-confirm').hidden = true; });
+  document.getElementById('seq-save-go').addEventListener('click', async () => {
+    const st = seqState, status = document.getElementById('seq-save-status'), btn = document.getElementById('seq-cpy');
+    document.getElementById('seq-save-confirm').hidden = true;
+    if (st.saving) return;
+    st.saving = true; btn.disabled = true;
+    const plan = seqCopyPlan();
+    try {
+      status.textContent = 'Creating the playlist…';
+      const pl = await spotifyFetch('POST', '/me/playlists', { name: plan.name, public: false, description: `Sequenced from ${(st.pl.name || '').trim()} on NLTDF` });
+      if (!pl || !pl.id) { status.textContent = 'Spotify didn’t create the playlist (see the message above). Nothing was changed.'; return; }
+      for (let i = 0; i < plan.uris.length; i += 100) {
+        status.textContent = `Adding tracks… ${Math.min(i + 100, plan.uris.length)} of ${plan.uris.length}`;
+        const r = await spotifyFetch('POST', `/playlists/${encodeURIComponent(pl.id)}/items`, { uris: plan.uris.slice(i, i + 100) });
+        if (!r) { status.textContent = `Created “${plan.name}” but stopped after ${i} tracks. Delete it in Spotify and try again.`; return; }
+      }
+      status.textContent = `Saved “${plan.name}” (private, ${plan.uris.length} tracks). It shows up here after the next library refresh.`;
+      showToast('Saved ' + plan.name, 'success');
+    } finally {
+      st.saving = false; btn.disabled = false;
+    }
+  });
   window.addEventListener('resize', () => { if (!seqPanel.hidden) requestAnimationFrame(seqDrawStrip); });
   document.getElementById('seq-open-btn').addEventListener('click', seqOpen);
   document.getElementById('seq-close').addEventListener('click', seqClose);
