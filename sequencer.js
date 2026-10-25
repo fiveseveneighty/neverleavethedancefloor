@@ -34,8 +34,10 @@
 
   // ctx: { shape, pulse, prof } — prof only for 'mo' (see profile())
   function keyCost(t, ctx) {
-    if (ctx.shape !== 'mo' || !ctx.prof) return KEY_COST[t];
-    const f = ctx.prof.tiers[t] || 0;
+    // Key habits: from the locked opening (Match my opening) or from the template sets (Fill "Like")
+    const tiers = ctx.tpl ? ctx.tpl.tiers : (ctx.shape === 'mo' && ctx.prof ? ctx.prof.tiers : null);
+    if (!tiers) return KEY_COST[t];
+    const f = tiers[t] || 0;
     return t === 'other' ? Math.max(.25, 1 - 1.5 * f) : KEY_COST[t] * (f ? .5 : 1);
   }
   function transitionCost(a, b, ctx) {
@@ -43,13 +45,18 @@
   }
   // Pulse: reward energy that alternates; penalise two steps the same way or a flat step
   function pulseCost(a, b, c, ctx) {
-    if (!ctx.pulse || !a) return 0;
+    if (!a) return 0;
+    // With a template, a third track in the same key is penalised: same-key moves cost nothing on
+    // their own, and without this a fill locks onto one key (Dan's sets use same key ~11% of the time)
+    const run = ctx.tpl && a.camelot === b.camelot && b.camelot === c.camelot ? .6 : 0;
+    if (!ctx.pulse) return run;
     const d1 = b.energy - a.energy, d2 = c.energy - b.energy;
-    return (d1 * d2 > 0 ? .25 : 0) + (Math.abs(d2) < .08 ? .1 : 0);
+    return run + (d1 * d2 > 0 ? .25 : 0) + (Math.abs(d2) < .08 ? .1 : 0);
   }
   // [targetEnergy, targetBpm] at position p (0..1) for a set of n tracks opening on o
   function target(p, n, o, ctx) {
     const e0 = o.energy, b0 = o.bpm;
+    if (ctx.tpl) return [tplAt(ctx.tpl.energy, p), b0 + tplAt(ctx.tpl.bpmDrift, p)];
     switch (ctx.shape) {
       case 'cl': return [e0 + (Math.min(1, e0 + .3) - e0) * p, b0 + 10 * p];
       case 'rr': { const waves = Math.max(1, Math.round(n / 12)); return [.72 + .16 * Math.cos(2 * Math.PI * waves * p), b0 - 5 * p]; }
@@ -58,12 +65,12 @@
       default: return [(e0 + .8) / 2, b0]; // 'lg'
     }
   }
-  const energyTol = ctx => ctx.shape === 'mo' && ctx.prof ? ctx.prof.energySd : W.energyTol;
-  const bpmTol = ctx => ctx.shape === 'mo' && ctx.prof ? ctx.prof.bpmSpread : W.bpmTol;
+  const energyTol = ctx => ctx.tpl ? ctx.tpl.energyTol : ctx.shape === 'mo' && ctx.prof ? ctx.prof.energySd : W.energyTol;
+  const bpmTol = ctx => ctx.tpl ? ctx.tpl.bpmTol : ctx.shape === 'mo' && ctx.prof ? ctx.prof.bpmSpread : W.bpmTol;
   function shapeCost(x, pos, n, o, ctx) {
     const p = n > 1 ? pos / (n - 1) : 0, [te, tb] = target(p, n, o, ctx);
     const e = Math.max(0, Math.abs(x.energy - te) - energyTol(ctx)) * 2.5;
-    const b = ctx.shape === 'lg' ? 0 : Math.max(0, Math.abs(x.bpm - tb) - bpmTol(ctx)) / 8 * .6;
+    const b = ctx.shape === 'lg' && !ctx.tpl ? 0 : Math.max(0, Math.abs(x.bpm - tb) - bpmTol(ctx)) / 8 * .6;
     return W.shape * (e + b);
   }
   function totalCost(seq, ctx) {
@@ -106,7 +113,7 @@
       for (let k = 1; lockedAt[k]; k++) opening.push(byId.get(lockedAt[k]));
       prof = profile(opening);
     }
-    const ctx = { shape: opts.shape, pulse: !!opts.pulse, prof };
+    const ctx = { shape: opts.shape, pulse: !!opts.pulse, prof, tpl: opts.tpl || null };
     const lockedIds = new Set(Object.values(lockedAt));
     let beams = [{ s: [o], c: 0 }];
     for (let pos = 1; pos < n; pos++) {
@@ -179,13 +186,79 @@
     return bestK;
   }
 
+  // ── Templates: "make it feel like these sets" (Fill's Like picker) ──
+  // A template is the sets' energy curves and tempo drift on a 0..1 position scale, averaged,
+  // plus the share of each key-move type they use and how often their energy turns.
+  const TPL_STEPS = 41;
+  function tplAt(curve, p) {
+    const x = Math.max(0, Math.min(1, p)) * (curve.length - 1), i = Math.floor(x), f = x - i;
+    return i >= curve.length - 1 ? curve[curve.length - 1] : curve[i] * (1 - f) + curve[i + 1] * f;
+  }
+  function buildTemplate(sets) {
+    const usable = sets.map(s => s.filter(x => x.camelot && x.bpm && x.energy != null)).filter(s => s.length >= 5);
+    if (!usable.length) return null;
+    const energy = new Array(TPL_STEPS).fill(0), bpmDrift = new Array(TPL_STEPS).fill(0), tiers = {};
+    let resid = 0, residN = 0, turns = 0, inner = 0, steps = 0;
+    for (const s of usable) {
+      const e = s.map(x => x.energy), b = s.map(x => x.bpm), sb = b.slice().sort((p, q) => p - q), med = sb[Math.floor(sb.length / 2)];
+      const bAdj = b.map(v => { const d = [v, v / 2, v * 2].reduce((p, q) => Math.abs(q - med) < Math.abs(p - med) ? q : p); return d - med; }); // half/double time folded
+      const start = bAdj.slice(0, 3).reduce((p, q) => p + q, 0) / Math.min(3, bAdj.length);
+      for (let k = 0; k < TPL_STEPS; k++) {
+        const p = k / (TPL_STEPS - 1);
+        energy[k] += tplAt(e, p) / usable.length;
+        bpmDrift[k] += (tplAt(bAdj, p) - start) / usable.length;
+      }
+      for (let i = 1; i < s.length; i++) { const t = tier(s[i - 1].camelot, s[i].camelot); tiers[t] = (tiers[t] || 0) + 1; steps++; }
+      for (let i = 1; i < e.length - 1; i++) { inner++; if ((e[i] - e[i - 1]) * (e[i + 1] - e[i]) < 0) turns++; }
+    }
+    for (const t in tiers) tiers[t] /= steps;
+    // Tolerance: how far the sets' tracks sit from their own averaged curve (kept between 0.05 and 0.12)
+    for (const s of usable) s.forEach((x, i) => { if (x.energy != null) { resid += (x.energy - tplAt(energy, s.length > 1 ? i / (s.length - 1) : 0)) ** 2; residN++; } });
+    const energyTol = Math.max(.05, Math.min(.12, Math.sqrt(resid / Math.max(1, residN)) * .6));
+    return { energy, bpmDrift, tiers, energyTol, bpmTol: 4, turnRate: inner ? turns / inner : 0, sets: usable.length };
+  }
+
+  /* Fill: pick `count` tracks from `pool` to follow `prefix` (the playlist's own tracks, opener first).
+   * opts: { prefix, pool, count, shape, pulse, tpl } — tracks are { id, camelot, bpm, energy }.
+   * Beam search over positions prefix.length .. prefix.length + count - 1 against the shape or template
+   * target for a set of the final length. Returns the picked ids in order (the caller re-sequences). */
+  function fill(opts) {
+    const prefix = opts.prefix, n = prefix.length + opts.count, o = prefix[0];
+    const ctx = { shape: opts.shape, pulse: !!opts.pulse, prof: null, tpl: opts.tpl || null };
+    const pool = opts.pool.filter(x => x.camelot && x.bpm && x.energy != null && !prefix.some(y => y.id === x.id));
+    let beams = [{ s: prefix.slice(), c: 0, used: new Set() }];
+    for (let pos = prefix.length; pos < n; pos++) {
+      const next = [];
+      for (const bm of beams) {
+        const last = bm.s[bm.s.length - 1], prev = bm.s.length > 1 ? bm.s[bm.s.length - 2] : null;
+        // Keep the 40 cheapest candidates per beam so the search stays quick on a phone
+        const scored = [];
+        for (const x of pool) {
+          if (bm.used.has(x.id)) continue;
+          scored.push({ x, c: transitionCost(last, x, ctx) + pulseCost(prev, last, x, ctx) + shapeCost(x, pos, n, o, ctx) });
+        }
+        scored.sort((a, b) => a.c - b.c);
+        for (const z of scored.slice(0, 40)) {
+          const used = new Set(bm.used); used.add(z.x.id);
+          next.push({ s: bm.s.concat(z.x), c: bm.c + z.c, used });
+        }
+      }
+      next.sort((a, b) => a.c - b.c);
+      // Keep beams that differ in their latest pick, so one strong track doesn't crowd out the rest
+      const seen = new Set(); beams = [];
+      for (const bm of next) { const k = bm.s.slice(prefix.length).map(x => x.id).sort().join(); if (seen.has(k)) continue; seen.add(k); beams.push(bm); if (beams.length >= W.beam) break; }
+      if (!beams.length) break;
+    }
+    return beams[0].s.slice(prefix.length).map(x => x.id);
+  }
+
   // The shape's target band at position p (0..1), for drawing: { energy, bpm, energyTol, bpmTol }
   function shapeTarget(p, n, opener, ctx) {
     const [energy, bpm] = target(p, n, opener, ctx);
     return { energy, bpm, energyTol: energyTol(ctx), bpmTol: bpmTol(ctx) };
   }
 
-  const api = { SHAPES, tier, transitionCost, isWeak, sequence, suggestBridges, profile, classifyShape, totalCost, shapeTarget };
+  const api = { SHAPES, tier, transitionCost, isWeak, sequence, suggestBridges, profile, classifyShape, totalCost, shapeTarget, buildTemplate, fill };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NLTDFSequencer = api;
 })(typeof window !== 'undefined' ? window : globalThis);
