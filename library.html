@@ -1199,7 +1199,7 @@
   </div>
   <div id="seq-save-confirm" class="seq-confirm" hidden>
     <div id="seq-save-msg"></div>
-    <div class="seq-confirm-btns"><button type="button" class="pf-btn" id="seq-save-cancel">Cancel</button><button type="button" class="pf-btn active" id="seq-save-go">Create it</button></div>
+    <div class="seq-confirm-btns"><button type="button" class="pf-btn" id="seq-save-cancel">Cancel</button><button type="button" class="pf-btn active" id="seq-save-go">Save copy</button></div>
   </div>
   <div id="seq-save-status" role="status" aria-live="polite"></div>
 </div>
@@ -2245,9 +2245,7 @@
         st.locks.delete(id); st.moved.delete(id); st.openBridges.delete(id);
         if (st.lockMenu === id) st.lockMenu = null;
         st.removed.push({ id, at });
-        seqRender();
-        const t = trackById.get(id);
-        showToast(`Removed “${t ? t.title : 'track'}”; it leaves Spotify only when you Update`, 'success');
+        seqRender();          // no toast: the row disappearing and the Removed line are the feedback
         return;
       }
       st.order = st.order.filter(x => x !== id);
@@ -2255,8 +2253,6 @@
       st.rejected.add(id);            // won't come back in later fills this session
       if (st.lockMenu === id) st.lockMenu = null;
       seqRender();
-      const t = trackById.get(id);
-      showToast(`Removed “${t ? t.title : 'track'}”`, 'success');
       return;
     }
     const br = e.target.closest('[data-br]');
@@ -2591,7 +2587,7 @@
     if (plan.skipped) msg += ` ${plan.skipped} local file${plan.skipped > 1 ? 's' : ''} can’t be copied.`;
     msg += ' Your original playlist isn’t touched.';
     seqState.saveMode = 'copy';
-    document.getElementById('seq-save-go').textContent = 'Create it';
+    document.getElementById('seq-save-go').textContent = 'Save copy';
     document.getElementById('seq-save-msg').textContent = msg;
     document.getElementById('seq-save-confirm').hidden = false;
   });
@@ -2678,7 +2674,7 @@
     const others = kept.length - seqKnownUnique(kept).length;
     if (others) msg += ` ${others} track${others > 1 ? 's' : ''} not in the library (or duplicates/local files) stay at the end.`;
     st.saveMode = 'update';
-    document.getElementById('seq-save-go').textContent = 'Reorder it';
+    document.getElementById('seq-save-go').textContent = 'Update';
     document.getElementById('seq-save-msg').textContent = msg;
     document.getElementById('seq-save-confirm').hidden = false;
   });
