@@ -25,6 +25,7 @@
 //                  (same namespace the nltdf-liked-refresher Worker writes to)
 
 const LIKED_TRACKS_KV_KEY = 'liked-tracks-data';
+const PLAYLIST_CACHE_KV_KEY = 'liked-tracks-playlist-cache'; // read-only here; written by the Worker
 const USER_FALLBACKS_KV_KEY = 'liked-tracks-user-fallbacks';
 
 // The 24 valid Camelot codes: 1A..12A, 1B..12B.
@@ -122,6 +123,15 @@ async function readUserFallbacks(env) {
   }
 }
 
+async function readPlaylistCache(env) {
+  try {
+    const c = await env.LIKED_TRACKS.get(PLAYLIST_CACHE_KV_KEY, 'json');
+    return c && typeof c === 'object' ? c : {};
+  } catch (e) {
+    return {}; // never let a bad playlist cache break the library page
+  }
+}
+
 export async function onRequestGet(context) {
   const { env, request } = context;
 
@@ -138,9 +148,10 @@ export async function onRequestGet(context) {
   }
 
   try {
-    const [raw, userFallbacks] = await Promise.all([
+    const [raw, userFallbacks, plCache] = await Promise.all([
       env.LIKED_TRACKS.get(LIKED_TRACKS_KV_KEY),
       readUserFallbacks(env),
+      readPlaylistCache(env),
     ]);
     if (!raw) {
       return jsonResponse({ tracks: [], savedAt: null, totalLiked: 0 });
@@ -149,6 +160,13 @@ export async function onRequestGet(context) {
     if (data && Array.isArray(data.tracks)) {
       data.tracks = applyManualOverrides(data.tracks, userFallbacks);
     }
+    // In-scope playlists in Spotify library order (newest first), with track IDs in
+    // playlist order -- for the set sequencer (B-37). Written by nltdf-liked-refresher.
+    data.playlists = Object.entries(plCache).map(([id, p]) => ({
+      id,
+      name: (p && p.name) || '',
+      trackIds: (p && Array.isArray(p.trackIds)) ? p.trackIds : [],
+    }));
     return jsonResponse(data);
   } catch (err) {
     return jsonResponse({ error: 'FETCH_FAILED', message: String(err && err.message || err) }, 502);
