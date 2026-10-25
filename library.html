@@ -1157,6 +1157,10 @@
         <div class="playlist-filter-btns" id="seq-pool"><button type="button" class="pf-btn active" data-pool="out">Out ✗</button><button type="button" class="pf-btn active" data-pool="hash">### only</button></div>
       </div>
       <div class="seq-ctrl">
+        <span class="compat-ctrl-label">Age</span>
+        <div class="playlist-filter-btns" id="seq-age"><button type="button" class="pf-btn active" data-age="all">All</button><button type="button" class="pf-btn" data-age="new">Newest</button><button type="button" class="pf-btn" data-age="old">Oldest</button></div>
+      </div>
+      <div class="seq-ctrl">
         <span class="compat-ctrl-label">Fill</span>
         <div class="seq-fill-row"><button type="button" class="pf-btn" data-fill-step="-1" aria-label="Fewer tracks">−</button><span id="seq-fill-n">28</span><button type="button" class="pf-btn" data-fill-step="1" aria-label="More tracks">+</button><button type="button" class="pf-btn active" id="seq-fill-go">Fill</button></div>
       </div>
@@ -1222,7 +1226,7 @@
   </div>
 </div>
 <!-- Bump ?v= whenever sequencer.js changes: the site caches .js for 4 hours, but this page is re-checked on every load -->
-<script src="/sequencer.js?v=c80be60"></script>
+<script src="/sequencer.js?v=623485d"></script>
 <script>
   const API_ENDPOINT   = '/api/liked-tracks';
   const WORKER_URL     = 'https://nltdf-liked-refresher.dansaltzmandesign.workers.dev/';
@@ -1790,7 +1794,7 @@
     locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null,
     inserted: new Set(), openBridges: new Set(), returnFromCompat: false, likeOn: new Set(),
     liveAll: null, srcNote: '', loadToken: 0, saving: false,
-    tplIds: [], tpl: null, fillN: 28, poolOut: true, poolHash: true, rejected: new Set(), userUnlocked: new Set()
+    tplIds: [], tpl: null, fillN: 28, poolOut: true, poolHash: true, age: 'all', rejected: new Set(), userUnlocked: new Set()
   };
   const SEQ_ICON = {
     warn: '<svg viewBox="0 0 16 16" fill="none"><path d="M8 2l6.5 11.5h-13L8 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.6v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
@@ -2092,7 +2096,7 @@
       locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null, warnedRest: false,
       inserted: new Set(), openBridges: new Set(), returnFromCompat: false, likeOn: new Set(),
       liveAll: null, srcNote: 'Order from the last library refresh', loadToken: seqState.loadToken + 1, saving: false,
-      tplIds: [], tpl: null, fillN: ids.length < 28 ? 28 : ids.length + 10, poolOut: true, poolHash: true, rejected: new Set(), userUnlocked: new Set()
+      tplIds: [], tpl: null, fillN: ids.length < 28 ? 28 : ids.length + 10, poolOut: true, poolHash: true, age: 'all', rejected: new Set(), userUnlocked: new Set()
     });
     seqCloseMenus();
     document.getElementById('seq-confirm').hidden = true;
@@ -2324,6 +2328,7 @@
     const four = ['lg', 'cl', 'rr', 'so'].includes(st.shape);
     document.getElementById('seq-tpl-name').textContent = names.length ? names.join(' + ') : (four ? `${SEQ.SHAPES[st.shape]} curve` : 'The shape’s own curve');
     document.querySelectorAll('#seq-pool .pf-btn').forEach(b => b.classList.toggle('active', b.dataset.pool === 'out' ? st.poolOut : st.poolHash));
+    document.querySelectorAll('#seq-age .pf-btn').forEach(b => b.classList.toggle('active', b.dataset.age === st.age));
     document.getElementById('seq-fill-n').textContent = st.fillN;
     const refill = [...st.inserted].some(id => !st.locks.has(id));
     document.getElementById('seq-fill-go').textContent = refill ? 'Refill' : 'Fill';
@@ -2362,6 +2367,24 @@
     if (b.dataset.pool === 'out') seqState.poolOut = !seqState.poolOut; else seqState.poolHash = !seqState.poolHash;
     seqRenderFillCtl();
   });
+  // Age: a soft lean, not a filter. Pool tracks are ranked by the date Dan liked them (0 = newest,
+  // 1 = oldest) and the far end costs up to SEQ_AGE_LEAN extra, so a much better fit can still win.
+  const SEQ_AGE_LEAN = 0.35;
+  function seqAgeCost(pool) {
+    const st = seqState;
+    if (st.age === 'all' || pool.length < 2) return null;
+    const ranked = pool.map(x => ({ id: x.id, at: (trackById.get(x.id) || {}).addedAt || '' }))
+      .sort((a, b) => b.at.localeCompare(a.at));
+    const out = {};
+    ranked.forEach((r, i) => { const pos = i / (ranked.length - 1); out[r.id] = SEQ_AGE_LEAN * (st.age === 'new' ? pos : 1 - pos); });
+    return out;
+  }
+  document.getElementById('seq-age').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-age]');
+    if (!b) return;
+    seqState.age = b.dataset.age;
+    seqRenderFillCtl();
+  });
   document.querySelector('.seq-fill-row').addEventListener('click', (e) => {
     const b = e.target.closest('[data-fill-step]');
     if (!b) return;
@@ -2393,7 +2416,7 @@
     const prefix = base.map(seqEngineTrack).filter(Boolean);
     if (!prefix.length) { showToast('The playlist needs a track with a key and BPM to start from', 'error'); return; }
     const shape = ['lg', 'cl', 'rr', 'so'].includes(st.shape) ? st.shape : 'lg';
-    const picks = SEQ.fill({ prefix, pool, count, shape, pulse: st.pulse, tpl: st.tpl });
+    const picks = SEQ.fill({ prefix, pool, count, shape, pulse: st.pulse, tpl: st.tpl, extraCost: seqAgeCost(pool) });
     if (!picks.length) { showToast('No tracks fit; try another pool or shape', 'error'); return; }
     seqRebuild(() => {
       drop.forEach(id => { st.inserted.delete(id); st.rejected.add(id); });
