@@ -725,7 +725,10 @@
     .seq-like-link.on { color: var(--accent); }
     .seq-fill-row { display: flex; align-items: center; gap: 6px; }
     .seq-fill-row .pf-btn[data-fill-step] { width: 30px; padding-left: 0; padding-right: 0; text-align: center; }
-    #seq-fill-n { min-width: 2.2ch; text-align: center; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.82rem; }
+    #seq-fill-n { width: 3.4em; padding: 4px 2px; text-align: center; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+    #seq-fill-n:focus { outline: none; border-color: var(--accent); }
+    /* iOS: no double-tap zoom when tapping the panel's buttons quickly (pan and pinch still work) */
+    #seq-panel { touch-action: manipulation; }
     #seq-fill-go { margin-left: auto; }
     #seq-tpl-list[hidden] { display: none; }
     .seq-hint { font-size: 0.7rem; color: var(--text-muted); margin: -2px 0 0 72px; }
@@ -1174,7 +1177,7 @@
       </div>
       <div class="seq-ctrl">
         <span class="compat-ctrl-label">Fill</span>
-        <div class="seq-fill-row"><button type="button" class="pf-btn" data-fill-step="-1" aria-label="Fewer tracks">−</button><span id="seq-fill-n">28</span><button type="button" class="pf-btn" data-fill-step="1" aria-label="More tracks">+</button><button type="button" class="pf-btn active" id="seq-fill-go">Fill</button></div>
+        <div class="seq-fill-row"><button type="button" class="pf-btn" data-fill-step="-1" aria-label="Fewer tracks">−</button><input type="text" id="seq-fill-n" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="done" aria-label="Fill to how many tracks"><button type="button" class="pf-btn" data-fill-step="1" aria-label="More tracks">+</button><button type="button" class="pf-btn active" id="seq-fill-go">Fill</button></div>
       </div>
       <div id="seq-confirm" class="seq-confirm" hidden>
         <div id="seq-confirm-msg"></div>
@@ -2152,7 +2155,8 @@
       locks: new Set(), moved: new Set(), lockMenu: null, dragId: null, pending: null, warnedRest: false,
       inserted: new Set(), openBridges: new Set(), returnFromCompat: false, likeOn: new Set(),
       liveAll: null, srcNote: 'Order from the last library refresh', loadToken: seqState.loadToken + 1, saving: false,
-      tplIds: [], tpl: null, fillN: ids.length < 28 ? 28 : ids.length + 10, poolOut: true, poolHash: true, age: 'all', rejected: new Set(), userUnlocked: new Set(),
+      tplIds: [], tpl: null, fillN: Math.max(2, ids.length),   // starts at the playlist's own length (Oct 30)
+      poolOut: true, poolHash: true, age: 'all', rejected: new Set(), userUnlocked: new Set(),
       removed: [], editing: false, showRemoved: false, swapOpen: null, swapSeen: new Set()
     });
     seqCloseMenus();
@@ -2464,7 +2468,8 @@
     document.getElementById('seq-tpl-name').textContent = names.length ? names.join(' + ') : (four ? `${SEQ.SHAPES[st.shape]} curve` : 'The shape’s own curve');
     document.querySelectorAll('#seq-pool .pf-btn').forEach(b => b.classList.toggle('active', b.dataset.pool === 'out' ? st.poolOut : st.poolHash));
     document.querySelectorAll('#seq-age .pf-btn').forEach(b => b.classList.toggle('active', b.dataset.age === st.age));
-    document.getElementById('seq-fill-n').textContent = st.fillN;
+    const fillIn = document.getElementById('seq-fill-n');
+    if (document.activeElement !== fillIn) fillIn.value = st.fillN;
     // Below the Fill number it tops up (keeps everything); at or above it, Refill swaps the unlocked NEW picks
     const refill = st.order.length >= st.fillN && [...st.inserted].some(id => !st.locks.has(id));
     document.getElementById('seq-fill-go').textContent = refill ? 'Refill' : 'Fill';
@@ -2521,10 +2526,19 @@
     seqState.age = b.dataset.age;
     seqRenderFillCtl();
   });
+  // Fill number as a text field: digits only, 2–200, applied as typed; tidied on blur or Done
+  const seqFillInput = document.getElementById('seq-fill-n');
+  seqFillInput.addEventListener('input', () => {
+    seqFillInput.value = seqFillInput.value.replace(/\D/g, '').slice(0, 3);
+    const v = parseInt(seqFillInput.value, 10);
+    if (v >= 2 && v <= 200) { seqState.fillN = v; document.getElementById('seq-fill-go').textContent = seqState.order.length >= v && [...seqState.inserted].some(id => !seqState.locks.has(id)) ? 'Refill' : 'Fill'; }
+  });
+  seqFillInput.addEventListener('blur', () => { seqFillInput.value = seqState.fillN; seqRenderFillCtl(); });
+  seqFillInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); seqFillInput.blur(); } });
   document.querySelector('.seq-fill-row').addEventListener('click', (e) => {
     const b = e.target.closest('[data-fill-step]');
     if (!b) return;
-    seqState.fillN = Math.max(2, Math.min(120, seqState.fillN + Number(b.dataset.fillStep)));
+    seqState.fillN = Math.max(2, Math.min(200, seqState.fillN + Number(b.dataset.fillStep)));
     seqRenderFillCtl();
   });
   function seqFillPool(exclude) {
@@ -2609,6 +2623,7 @@
     const untouched = st.shape === 'sp' && !st.moved.size && !st.inserted.size && !seqDiffers();
     st.saved = ids.slice();
     if (untouched) {
+      if (st.fillN === Math.max(2, st.order.length)) st.fillN = Math.max(2, ids.length);   // keep Fill at the playlist's length
       st.order = ids.slice();
       st.srcNote = 'Live from Spotify (changed since the last library refresh)';
       seqRender();
