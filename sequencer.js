@@ -142,6 +142,25 @@
   // A transition is weak when it costs about as much as an off-chart key move
   function isWeak(a, b, ctx) { return transitionCost(a, b, ctx || { shape: 'lg' }) >= W.weak; }
 
+  /* Swap: up to `limit` tracks from `pool` to take the place of the track at position `pos`.
+   * opts: { prev, next, prevPrev, pool, pos, n, opener, shape, pulse, tpl, extraCost, limit }.
+   * Scores the move in from `prev`, the move out to `next` (if any), Pulse, the shape or template
+   * target at that position, and the optional per-track extraCost (the page's Age lean). */
+  function suggestSwaps(o) {
+    const ctx = { shape: o.shape || 'lg', pulse: !!o.pulse, prof: null, tpl: o.tpl || null };
+    const extra = o.extraCost || {};
+    return o.pool
+      .filter(x => x.camelot && x.bpm && x.energy != null)
+      .map(x => ({ x, c:
+        (o.prev ? transitionCost(o.prev, x, ctx) + pulseCost(o.prevPrev || null, o.prev, x, ctx) : 0) +
+        (o.next ? transitionCost(x, o.next, ctx) : 0) +
+        (o.opener ? shapeCost(x, o.pos, o.n, o.opener, ctx) : 0) +
+        (extra[x.id] || 0) }))
+      .sort((p, q) => p.c - q.c)
+      .slice(0, o.limit || 5)
+      .map(z => z.x);
+  }
+
   // Up to `limit` bridge tracks from `pool` that fit between a and b (key and BPM on both sides, energy in between)
   function suggestBridges(a, b, pool, limit = 5) {
     const ctx = { shape: 'lg' }, mid = (a.energy + b.energy) / 2;
@@ -260,7 +279,7 @@
     return { energy, bpm, energyTol: energyTol(ctx), bpmTol: bpmTol(ctx) };
   }
 
-  const api = { SHAPES, tier, transitionCost, isWeak, sequence, suggestBridges, profile, classifyShape, totalCost, shapeTarget, buildTemplate, fill };
+  const api = { SHAPES, tier, transitionCost, isWeak, sequence, suggestBridges, profile, classifyShape, totalCost, shapeTarget, buildTemplate, fill, suggestSwaps };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.NLTDFSequencer = api;
 })(typeof window !== 'undefined' ? window : globalThis);
