@@ -785,6 +785,10 @@
     #seq-removed-list { border: 1px dashed var(--border); border-radius: var(--radius); padding: 10px; margin-top: 6px; }
     #seq-removed-list .compat-row { margin-bottom: 6px; }
     #seq-removed-list .compat-row:last-child { margin-bottom: 0; }
+    .seq-swap-btn svg { width: 14px; height: 14px; }
+    .compat-close-btn.seq-swap-btn.on { color: var(--accent); border-color: var(--accent); }
+    .seq-swap-gap { width: 28px; flex: none; }
+    .seq-swap-more { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
     .seq-lockmenu { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin: 0 0 8px; }
 
     @media (max-width: 600px) {
@@ -1238,7 +1242,7 @@
   </div>
 </div>
 <!-- Bump ?v= whenever sequencer.js changes: the site caches .js for 4 hours, but this page is re-checked on every load -->
-<script src="/sequencer.js?v=623485d"></script>
+<script src="/sequencer.js?v=6d38dd5"></script>
 <script>
   const API_ENDPOINT   = '/api/liked-tracks';
   const WORKER_URL     = 'https://nltdf-liked-refresher.dansaltzmandesign.workers.dev/';
@@ -1807,7 +1811,7 @@
     inserted: new Set(), openBridges: new Set(), returnFromCompat: false, likeOn: new Set(),
     liveAll: null, srcNote: '', loadToken: 0, saving: false,
     tplIds: [], tpl: null, fillN: 28, poolOut: true, poolHash: true, age: 'all', rejected: new Set(), userUnlocked: new Set(),
-    removed: [], editing: false, showRemoved: false
+    removed: [], editing: false, showRemoved: false, swapOpen: null, swapSeen: new Set()
   };
   const SEQ_ICON = {
     warn: '<svg viewBox="0 0 16 16" fill="none"><path d="M8 2l6.5 11.5h-13L8 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.5v3.2M8 11.6v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
@@ -1981,10 +1985,35 @@
     const right = seqState.editing
       ? `<span class="seq-grip" data-drag="${escHtml(id)}" aria-label="Drag to move">${SEQ_ICON.grip}</span>`
       : `<button type="button" class="compat-close-btn" data-remove="${escHtml(id)}" aria-label="${seqState.inserted.has(id) ? 'Remove this pick' : 'Remove from playlist'}"><svg viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>`;
-    return `<div class="seq-row-ctl">${lock}${right}</div>`;
+    // Swap (B-41): unlocked rows outside Edit mode; locked rows keep the space so the columns line up
+    const swap = !seqState.editing && seqScorable(x) && !locked
+      ? `<button type="button" class="compat-close-btn seq-swap-btn${seqState.swapOpen === id ? ' on' : ''}" data-swap="${escHtml(id)}" aria-label="Swap this track"><svg viewBox="0 0 16 16" fill="none"><path d="M3 5h9l-2.5-2.5M13 11H4l2.5 2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+      : (seqState.editing ? '' : '<span class="seq-swap-gap"></span>');
+    return `<div class="seq-row-ctl">${swap}${lock}${right}</div>`;
+  }
+  // Swap list: up to 5 tracks from the Fill pool that fit this spot (both neighbours, the shape or
+  // Like sets at this position, the Age lean). "Use" puts one in this exact slot; nothing else moves.
+  function seqSwapHtml(id, i) {
+    const st = seqState, order = st.order;
+    const prev = i > 0 ? seqEngineTrack(order[i - 1]) : null, next = seqEngineTrack(order[i + 1]) || null;
+    const prevPrev = i > 1 ? seqEngineTrack(order[i - 2]) : null;
+    const exclude = new Set([...order, ...st.removed.map(r => r.id), ...st.rejected, ...st.swapSeen]);
+    st.tplIds.forEach(pid => { const p = playlistsData.find(q => q.id === pid); (p && p.trackIds || []).forEach(t => exclude.add(String(t))); });
+    const pool = (st.poolOut || st.poolHash) ? seqFillPool(exclude) : [];
+    const shape = ['lg', 'cl', 'rr', 'so'].includes(st.shape) ? st.shape : 'lg';
+    const picks = SEQ.suggestSwaps({ prev, next, prevPrev, pool, pos: i, n: order.length, opener: seqEngineTrack(order[0]), shape, pulse: st.pulse, tpl: st.tpl, extraCost: seqAgeCost(pool), limit: 5 });
+    picks.forEach(x => st.swapShown.push(x.id));
+    const cur = seqTrack(id);
+    const plus = '<svg viewBox="0 0 16 16" fill="none"><path d="M3 5h9l-2.5-2.5M13 11H4l2.5 2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const rows = picks.length
+      ? picks.map(x => compatRowHtml(trackById.get(x.id), false).replace(/<\/div>\s*$/, `<button type="button" class="compat-add-btn" data-swap-use="${escHtml(x.id)}" data-swap-for="${escHtml(id)}" aria-label="Use this instead">${plus}</button></div>`)).join('')
+      : '<div class="seq-bridges-none">Nothing in the pool fits this spot. Try another pool or Age setting.</div>';
+    return `<div class="seq-bridges"><span class="compat-source-label">Swap “${escHtml(cur ? cur.t.title : '')}” · from your pool</span>${rows}`
+      + `<div class="seq-swap-more"><button type="button" class="seq-bridges-cm" data-swap-more="${escHtml(id)}">More options</button><button type="button" class="seq-bridges-cm" data-swap-close="1" style="color:var(--text-muted)">Close</button></div></div>`;
   }
   function seqRenderList() {
     const order = seqState.order;
+    seqState.swapShown = [];
     let html = '';
     order.forEach((id, i) => {
       const x = seqTrack(id);
@@ -1996,6 +2025,7 @@
       html += rowHtml
         .replace('class="compat-row', `class="${cls}`)
         .replace(/<\/div>\s*$/, seqRowCtl(id, i, x) + '</div>');
+      if (seqState.swapOpen === id && !seqState.editing) html += seqSwapHtml(id, i);
       if (seqState.lockMenu === id) {
         html += `<div class="seq-lockmenu"><button type="button" class="pf-btn active" data-lockall="${escHtml(id)}">Lock this and everything above</button></div>`;
       }
@@ -2061,7 +2091,7 @@
   }
   function seqSequence() {
     const st = seqState;
-    st.moved.clear(); st.lockMenu = null; st.openBridges.clear(); st.editing = false;
+    st.moved.clear(); st.lockMenu = null; st.openBridges.clear(); st.editing = false; st.swapOpen = null;
     if (st.shape === 'sp') {        // Spotify current: put back the order saved in Spotify; unsaved inserts drop out
       st.order = st.saved.slice(); st.prof = null;
       st.inserted.forEach(id => st.locks.delete(id)); st.inserted.clear();
@@ -2123,7 +2153,7 @@
       inserted: new Set(), openBridges: new Set(), returnFromCompat: false, likeOn: new Set(),
       liveAll: null, srcNote: 'Order from the last library refresh', loadToken: seqState.loadToken + 1, saving: false,
       tplIds: [], tpl: null, fillN: ids.length < 28 ? 28 : ids.length + 10, poolOut: true, poolHash: true, age: 'all', rejected: new Set(), userUnlocked: new Set(),
-      removed: [], editing: false, showRemoved: false
+      removed: [], editing: false, showRemoved: false, swapOpen: null, swapSeen: new Set()
     });
     seqCloseMenus();
     document.getElementById('seq-confirm').hidden = true;
@@ -2235,6 +2265,31 @@
   // ── Order list: locks, lock-above, play ──
   document.getElementById('seq-list').addEventListener('click', (e) => {
     const st = seqState;
+    const sw = e.target.closest('[data-swap]');
+    if (sw) {
+      const id = sw.dataset.swap;
+      st.swapOpen = st.swapOpen === id ? null : id;
+      st.swapSeen = new Set();
+      st.lockMenu = null;
+      seqRenderList();
+      return;
+    }
+    if (e.target.closest('[data-swap-close]')) { st.swapOpen = null; st.swapSeen = new Set(); seqRenderList(); return; }
+    const more = e.target.closest('[data-swap-more]');
+    if (more) { (st.swapShown || []).forEach(x => st.swapSeen.add(x)); seqRenderList(); return; }
+    const use = e.target.closest('[data-swap-use]');
+    if (use) {
+      const nid = use.dataset.swapUse, old = use.dataset.swapFor, at = st.order.indexOf(old);
+      if (at < 1 || st.order.includes(nid)) return;
+      st.order[at] = nid;
+      st.inserted.add(nid);
+      st.locks.delete(old); st.moved.delete(old);
+      if (st.inserted.has(old)) { st.inserted.delete(old); st.rejected.add(old); }   // an unsaved pick just goes
+      else st.removed.push({ id: old, at });                                         // a saved track leaves on Update (Restore brings it back)
+      st.swapOpen = null; st.swapSeen = new Set();
+      seqRender();
+      return;
+    }
     const rmb = e.target.closest('[data-remove]');
     if (rmb) {
       const id = rmb.dataset.remove, at = st.order.indexOf(id);
