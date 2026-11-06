@@ -1248,7 +1248,6 @@
 <script src="/sequencer.js?v=6d38dd5"></script>
 <script>
   const API_ENDPOINT   = '/api/liked-tracks';
-  const WORKER_URL     = 'https://nltdf-liked-refresher.dansaltzmandesign.workers.dev/';
   const PW_STORAGE_KEY = 'nltdf_admin_pw';
 
   // ── Camelot wheel color map ──────────────────────────────────────────────
@@ -1425,7 +1424,9 @@
       .catch(err => { loadingState.classList.remove('visible'); showError('Failed to load tracks: ' + err.message); });
   }
 
+  let lastSavedAt = null;   // savedAt of the data on screen; Refresh waits for it to change
   function ingestData(data) {
+    lastSavedAt = data.savedAt || null;
     allTracks = data.tracks || [];
     playlistsData = Array.isArray(data.playlists) ? data.playlists : [];
     trackById = new Map(allTracks.map(t => [String(t.id), t]));
@@ -3160,17 +3161,29 @@
     });
   }
 
+  // ↻ Refresh (B-28/B-29, Nov 2026): runs the liked Worker through /api/refresh-liked, which checks
+  // the password and holds the Worker's trigger secret. Shows what the run did, then reloads once the
+  // new data is visible (KV can lag up to ~60s after the Worker writes it).
   refreshBtn.addEventListener('click', async () => {
     refreshOverlay.classList.add('visible');
     refreshBtn.disabled = true;
     try {
-      const resp = await fetch(WORKER_URL, { method: 'GET' });
-      if (!resp.ok) {
-        const body = await resp.text();
-        throw new Error(`Worker responded ${resp.status}: ${body.slice(0, 120)}`);
+      const before = lastSavedAt;
+      const resp = await fetch('/api/refresh-liked', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: savedPassword }),
+      });
+      if (resp.status === 401) { sessionStorage.removeItem(PW_STORAGE_KEY); location.reload(); return; }
+      const res = await resp.json().catch(() => ({}));
+      if (!resp.ok || !res.success) throw new Error(res.error || res.message || ('status ' + resp.status));
+      const n = res.newTracksThisRun || 0, f = res.freqBlogFetched || 0, p = res.freqBlogPending || 0;
+      showToast(`${n} new track${n === 1 ? '' : 's'} · ${f} FreqBlog lookup${f === 1 ? '' : 's'} · ${p} still waiting`, 'success');
+      for (let i = 0; i < 15; i++) {
+        const data = await fetchTracksJson();
+        if (!data) break;
+        if (!before || data.savedAt !== before || i === 14) { ingestData(data); break; }
+        await new Promise(r => setTimeout(r, 5000));
       }
-      await new Promise(r => setTimeout(r, 1500));
-      await loadTracksAsync();
     } catch(err) {
       showError('Refresh failed: ' + err.message);
     } finally {
@@ -3178,6 +3191,18 @@
       refreshBtn.disabled = false;
     }
   });
+
+  async function fetchTracksJson() {
+    try {
+      const r = await fetch(`${API_ENDPOINT}?password=${encodeURIComponent(savedPassword)}&t=${Date.now()}`);
+      if (r.status === 401) { sessionStorage.removeItem(PW_STORAGE_KEY); location.reload(); return null; }
+      if (!r.ok) throw new Error('Status ' + r.status);
+      return await r.json();
+    } catch(err) {
+      showError('Could not reload data: ' + err.message);
+      return null;
+    }
+  }
 
   async function loadTracksAsync() {
     try {
