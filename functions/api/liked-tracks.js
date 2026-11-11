@@ -67,6 +67,11 @@ const MANUAL_OVERRIDES = {
   // "Kill The Noise (Interlude)" -- Cloonee, Harvey Whyte. Same situation;
   // Beatport 128 BPM, C minor = 5A (Spotify agrees). Added Oct 6 2026 MT.
   '0a9j1enjxmEuEZy6B6NDng': { bpm: 128, camelot: '5A' },
+
+  // Drum & bass read at half speed by FreqBlog (~87); Spotify shows 174.
+  // Keys agree with Spotify. Added Nov 11 2026 MT.
+  '0P4LyH6wJAhs2ne7NLQDyG': { bpm: 174 }, // "Me & You" -- Friction (FreqBlog 86.9)
+  '4IMTF0IZfTi7o1OIFko4hb': { bpm: 174 }, // "By Your Side" -- SwitchJames (FreqBlog 86.99)
 };
 
 // Stopgap values used ONLY while the track's own field is still null --
